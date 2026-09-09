@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+.smoke-profile/
+test-results/
+playwright-report/
+.env
+*.log
