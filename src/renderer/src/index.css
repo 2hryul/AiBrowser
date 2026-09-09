@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-shell-bg: #17171a;
+  --color-shell-panel: #1f1f24;
+  --color-shell-line: #2e2e34;
+  --color-shell-text: #f2f2f5;
+  --color-shell-muted: #9a9aa0;
+  --color-shell-accent: #3b82f6;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-shell-bg);
+  color: var(--color-shell-text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  /* 셸은 문서가 아니라 크롬(UI)이므로 텍스트 선택·드래그를 끈다. */
+  user-select: none;
+}
