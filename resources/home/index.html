@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Helm 홈</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font: 14px/1.6 "Segoe UI", system-ui, sans-serif;
+        background: #fbfbfd;
+        color: #1c1c1e;
+      }
+      main { width: min(560px, 88vw); text-align: center; }
+      .mark {
+        width: 56px; height: 56px; margin: 0 auto 20px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #2563eb, #0ea5e9);
+        display: grid; place-items: center;
+        color: #fff; font-size: 26px; font-weight: 700;
+      }
+      h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.01em; }
+      p.sub { margin: 0 0 28px; color: #6b6b70; }
+      ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; text-align: left; }
+      li {
+        padding: 10px 14px; border: 1px solid #e6e6ea; border-radius: 10px;
+        background: #fff; display: flex; justify-content: space-between; gap: 12px;
+      }
+      li span:last-child { color: #6b6b70; font-variant-numeric: tabular-nums; }
+      footer { margin-top: 24px; color: #9a9aa0; font-size: 12px; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #17171a; color: #f2f2f5; }
+        p.sub, li span:last-child { color: #9a9aa0; }
+        li { background: #1f1f24; border-color: #2e2e34; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">H</div>
+      <h1>Helm</h1>
+      <p class="sub">사내 브라우저 · M0 골격</p>
+      <ul>
+        <li><span>세션 파티션</span><span>persist:helm</span></li>
+        <li><span>홈 주소</span><span>app://home/</span></li>
+        <li><span>이 페이지</span><span>번들 리소스 (네트워크 없음)</span></li>
+      </ul>
+      <footer>Ctrl+T 새 탭 · Ctrl+W 탭 닫기 · Ctrl+L 주소창</footer>
+    </main>
+  </body>
+</html>
