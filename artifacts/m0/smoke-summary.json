@@ -1,0 +1,41 @@
+{
+  "ranAt": "2026-09-09T23:25:01.279Z",
+  "contentBounds": {
+    "x": 240,
+    "y": 48,
+    "width": 1026,
+    "height": 710
+  },
+  "pageViewport": {
+    "w": 1026,
+    "h": 710
+  },
+  "shellBounds": {
+    "x": 0,
+    "y": 0,
+    "width": 1266,
+    "height": 758
+  },
+  "screenshots": {
+    "shell.png": {
+      "width": 1583,
+      "height": 948,
+      "bytes": 13856
+    },
+    "home-tab.png": {
+      "width": 1283,
+      "height": 888,
+      "bytes": 22034
+    }
+  },
+  "tabs": {
+    "createdTotal": 3,
+    "afterClose": 2,
+    "homeTitle": "Helm 홈"
+  },
+  "sessionPersistence": {
+    "partition": "persist:helm",
+    "cookie": "helm_smoke_session",
+    "valueAfterRestart": "m0-persisted"
+  }
+}
