@@ -33,6 +33,7 @@ interface HelmTabManagerHook {
   restoreClosedTab: () => number | null;
   unloadIdleTabs: (now?: number) => number;
   indexOf: (id: number) => number;
+  ownerOf: (id: number) => 'human' | 'ai' | null;
   getState: () => HelmBrowserState;
   getWebContents: (id: number) => Electron.WebContents | null;
   getTabBounds: (id: number) => Electron.Rectangle | null;
@@ -68,12 +69,28 @@ interface HelmHandoffHook {
   ownerOf: (tabId: number) => string | null;
 }
 
+interface HelmOverlayBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  role?: string;
+}
+
+interface HelmOverlayState {
+  badge?: string;
+  boxes?: HelmOverlayBox[];
+  cursor?: { x: number; y: number };
+}
+
 interface HelmOverlayHook {
   isVisible: () => boolean;
   isEnabled: () => boolean;
   setEnabled: (enabled: boolean) => void;
-  show: (state: unknown, holdMs?: number) => Promise<void>;
+  show: (state: HelmOverlayState, holdMs?: number) => Promise<void>;
   hide: () => void;
+  lastState: () => { state: HelmOverlayState; at: number } | null;
+  capture: () => Promise<{ base64: string; width: number; height: number } | null>;
 }
 
 interface HelmExtensionLoadResult {
@@ -106,6 +123,8 @@ interface HelmE2EHook {
 
   // M2
   getOverlay: () => HelmOverlayHook | null;
+  overlayCapture: () => Promise<{ base64: string; width: number; height: number } | null>;
+  overlayLastState: () => { state: HelmOverlayState; at: number } | null;
   getHandoff: () => HelmHandoffHook | null;
   getAiState: () => HelmAiState;
   getMcpEndpoint: () => { url: string; port: number; token: string; addCommand: string } | null;

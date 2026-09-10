@@ -93,7 +93,9 @@ const INCIDENTS: Incident[] = Array.from({ length: PORTAL_B.total }, (_unused, i
     title: `장애 ${n} — 서비스 지연`,
     assignee: AUTHORS[n % AUTHORS.length] ?? '김주임',
     openedAt: new Date(Date.UTC(2026, 5, 1) + index * 3_600_000).toISOString(),
-    period: PERIODS[n % 3] ?? 'week'
+    // 우선순위와 기간을 서로 다른 주기로 돌린다. 같은 주기(n % 3)로 두면 둘이 완전히 상관돼
+    // "P1 + 최근 1분기" 같은 조합이 공집합이 되고, 필터 조합 검증이 성립하지 않는다.
+    period: PERIODS[Math.floor(n / 7) % 3] ?? 'week'
   };
 });
 

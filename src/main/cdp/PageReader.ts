@@ -237,13 +237,20 @@ export async function readPage(
           entry.value = isSecret || BULLETS_ONLY.test(value) ? MASKED_VALUE : value;
         }
         if (frame.id !== frames[0]?.id) entry.frameId = frame.id;
-        if (propOf(node, 'disabled') === true) entry.disabled = true;
-        if (propOf(node, 'focused') === true) entry.focused = true;
+        // 불리언 속성도 토큰 문자열로 오는 경우가 있다.
+        const isTrue = (name: string): boolean => {
+          const value = propOf(node, name);
+          return value === true || value === 'true';
+        };
+        if (isTrue('disabled')) entry.disabled = true;
+        if (isTrue('focused')) entry.focused = true;
 
+        // CDP 는 checked 를 tristate 토큰('true' | 'false' | 'mixed')으로 준다.
+        // 불리언으로 오는 경우도 있어 둘 다 받는다.
         const checked = propOf(node, 'checked');
-        if (checked === true || checked === false || checked === 'mixed') {
-          entry.checked = checked as boolean | 'mixed';
-        }
+        if (checked === true || checked === 'true') entry.checked = true;
+        else if (checked === false || checked === 'false') entry.checked = false;
+        else if (checked === 'mixed') entry.checked = 'mixed';
 
         nodes.push(entry);
       }

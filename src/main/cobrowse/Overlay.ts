@@ -36,6 +36,8 @@ export class Overlay {
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
   /** 오버레이 사용 여부. 설정에서 끌 수 있다(기본 켜짐). */
   private enabled = true;
+  /** 마지막으로 그린 내용. "클릭 직전에 무엇을 표시했는가" 를 검증할 수 있게 남긴다. */
+  private lastShown: { state: OverlayState; at: number } | null = null;
 
   constructor(window: BaseWindow) {
     this.window = window;
@@ -109,6 +111,7 @@ export class Overlay {
       return;
     }
 
+    this.lastShown = { state, at: Date.now() };
     view.setVisible(true);
     this.raiseWithoutReset();
 
@@ -138,6 +141,24 @@ export class Overlay {
   /** 스크린샷 검증용 — 지금 보이는지. */
   isVisible(): boolean {
     return this.view?.getVisible() ?? false;
+  }
+
+  /** 마지막으로 그린 내용. 도구가 클릭 직전에 무엇을 표시했는지 확인하는 데 쓴다. */
+  lastState(): { state: OverlayState; at: number } | null {
+    return this.lastShown;
+  }
+
+  /**
+   * 오버레이 뷰만 캡처한다.
+   * 오버레이는 별도 View 라 페이지 캡처에는 잡히지 않는다 — 하이라이트 픽셀을 세려면 이쪽을 봐야 한다.
+   */
+  async capture(): Promise<{ base64: string; width: number; height: number } | null> {
+    const view = this.view;
+    if (!view || view.webContents.isDestroyed()) return null;
+
+    const image = await view.webContents.capturePage();
+    const size = image.getSize();
+    return { base64: image.toPNG().toString('base64'), width: size.width, height: size.height };
   }
 
   private async waitReady(view: WebContentsView): Promise<void> {

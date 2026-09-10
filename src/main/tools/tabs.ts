@@ -120,7 +120,8 @@ const tabsSelect: Tool<{ tabId: number }, { tabId: number; active: boolean }> = 
   },
   async run(ctx, args) {
     // 불변 조건 3: AI 는 사람이 보고 있는 탭을 tabs_select 하지 않는다.
-    if (!ctx.handoff.isAiTab(args.tabId)) {
+    // 소유권의 근거는 TabManager 의 owner 다 — 팝업으로 열린 AI 탭도 여기서 ai 로 잡힌다.
+    if (ctx.tabs.ownerOf(args.tabId) !== 'ai') {
       throw new ToolError(
         'not_ai_tab',
         `[tabs_select] 탭 ${args.tabId} 은(는) 사람 소유입니다. AI 는 사람이 보는 탭을 가로챌 수 없습니다.`
@@ -158,7 +159,7 @@ const tabsClose: Tool<{ tabId: number }, { closed: boolean; remaining: number }>
     };
   },
   async run(ctx, args) {
-    if (!ctx.handoff.isAiTab(args.tabId)) {
+    if (ctx.tabs.ownerOf(args.tabId) !== 'ai') {
       throw new ToolError(
         'not_ai_tab',
         `[tabs_close] 탭 ${args.tabId} 은(는) 사람 소유입니다. AI 가 닫지 않습니다.`

@@ -40,16 +40,16 @@ export async function boxOfRef(wc: WebContents, ref: string): Promise<BoxModel |
   await enableDomain(wc, 'DOM');
 
   try {
-    const result = await send<{ model?: { content: number[]; width: number; height: number } }>(
-      wc,
-      'DOM.getBoxModel',
-      { backendNodeId: entry.backendNodeId }
-    );
+    const result = await send<{
+      model?: { content: number[]; padding: number[]; border: number[]; width: number; height: number };
+    }>(wc, 'DOM.getBoxModel', { backendNodeId: entry.backendNodeId });
 
-    const quad = result.model?.content;
+    // border 박스를 쓴다. content 박스는 패딩 안쪽이라 사람이 보는 테두리보다 작게 잡히고,
+    // 하이라이트가 요소보다 안쪽에 그려져 어긋나 보인다(getBoundingClientRect 와도 다르다).
+    const quad = result.model?.border ?? result.model?.content;
     if (!quad || quad.length < 8) return null;
 
-    // content quad 는 [x1,y1, x2,y2, x3,y3, x4,y4] 순서다.
+    // quad 는 [x1,y1, x2,y2, x3,y3, x4,y4] 순서다.
     const xs = [quad[0], quad[2], quad[4], quad[6]].filter((n): n is number => typeof n === 'number');
     const ys = [quad[1], quad[3], quad[5], quad[7]].filter((n): n is number => typeof n === 'number');
     if (xs.length < 4 || ys.length < 4) return null;

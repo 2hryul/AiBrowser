@@ -80,18 +80,31 @@ const readPageTool: Tool<ReadPageArgs, ReadPageResultOut> = {
     const tabId = requireTabId(ctx, args.tabId);
     const wc = requireWebContents(ctx, tabId);
 
-    const result = await readPage(wc, { limit: args.maxNodes ?? READ_PAGE_LIMIT });
-    const nodes =
-      args.filter === 'interactive'
-        ? result.nodes.filter((node) => INTERACTIVE.has(node.role))
-        : result.nodes;
+    const limit = args.maxNodes ?? READ_PAGE_LIMIT;
+
+    if (args.filter !== 'interactive') {
+      const result = await readPage(wc, { limit });
+      return {
+        tabId,
+        url: result.url,
+        title: result.title,
+        nodes: result.nodes,
+        truncated: result.truncated,
+        frames: result.frames
+      };
+    }
+
+    // 상한을 걸러낸 뒤에 적용해야 한다.
+    // 먼저 자르고 거르면 표가 큰 페이지에서 페이지네이션·버튼이 통째로 사라진다.
+    const result = await readPage(wc, { limit: Math.min(3000, limit * 10) });
+    const interactive = result.nodes.filter((node) => INTERACTIVE.has(node.role));
 
     return {
       tabId,
       url: result.url,
       title: result.title,
-      nodes,
-      truncated: result.truncated,
+      nodes: interactive.slice(0, limit),
+      truncated: result.truncated || interactive.length > limit,
       frames: result.frames
     };
   }

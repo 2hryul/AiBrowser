@@ -254,6 +254,13 @@ function createWindow(helmSession: Session): void {
       // AI 가 나중에 콘솔을 물어볼 수 있으므로 탭이 생길 때부터 모아 둔다.
       startConsoleCapture(wc);
     },
+    onPopup: (childTabId, parentTabId) => {
+      // 팝업은 부모 탭을 몰고 있던 스레드가 이어서 다룬다.
+      const owner = handoff?.ownerOf(parentTabId) ?? aiState.threadId;
+      const wc = tabManager?.getWebContents(childTabId);
+      if (handoff && wc && owner !== '') handoff.claimTab(childTabId, owner, wc);
+      refreshAiState();
+    },
     onVisit: (url, title) => history?.add(url, title),
     onTitleUpdated: (url, title) => history?.updateTitle(url, title),
     ...(Number.isFinite(idleUnloadOverride) && idleUnloadOverride > 0
@@ -950,6 +957,8 @@ void app.whenReady().then(async () => {
       layout: LAYOUT,
       // ── M2 도구 표면 ──
       getOverlay: () => overlay,
+      overlayCapture: () => overlay?.capture() ?? Promise.resolve(null),
+      overlayLastState: () => overlay?.lastState() ?? null,
       getHandoff: () => handoff,
       getAiState: () => aiState,
       getMcpEndpoint: () => mcpEndpoint,

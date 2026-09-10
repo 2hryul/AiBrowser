@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-09-10T03:19:12.599Z",
+  "ranAt": "2026-09-10T04:23:25.099Z",
   "m0": {
     "contentBounds": {
       "x": 240,
@@ -105,7 +105,7 @@
     "cookie": "helm_smoke_session",
     "valueAfterRestart": "m1-persisted",
     "bookmarksAfterRestart": 1,
-    "historyAfterRestart": 12
+    "historyAfterRestart": 13
   },
   "profileImport": {
     "discovered": [

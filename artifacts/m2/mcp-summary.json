@@ -1,0 +1,74 @@
+{
+  "mcp": {
+    "endpoint": "http://127.0.0.1:3199/mcp",
+    "tools": 19,
+    "unauthorizedStatus": 401
+  },
+  "scenarioA": {
+    "rows": 200,
+    "uniqueIds": 200,
+    "pages": 10,
+    "sessionExpiredAndRecovered": true,
+    "firstRow": {
+      "id": 1,
+      "title": "사내 공지 001 — 인사팀 안내",
+      "postedAt": "2026-01-01"
+    },
+    "lastRow": {
+      "id": 200,
+      "title": "사내 공지 200 — 정보관리팀 안내",
+      "postedAt": "2026-07-19"
+    },
+    "screenshot": "scenario-a.png"
+  },
+  "scenarioB": {
+    "total": 24,
+    "collected": 24,
+    "domRowsVisible": 12,
+    "filters": {
+      "priorities": [
+        "P1",
+        "P2"
+      ],
+      "period": "quarter"
+    },
+    "screenshot": "scenario-b.png"
+  },
+  "scenarioC": {
+    "popups": 10,
+    "downloads": 10,
+    "replacementChars": 0,
+    "totalChars": 894,
+    "replacementRatio": 0,
+    "screenshot": "scenario-c.png"
+  },
+  "handoff": {
+    "pausedReason": "사람이 키를 입력했습니다 (a)",
+    "resumeResult": {
+      "resumed": true,
+      "note": "user intervened"
+    },
+    "resumedAndContinued": true
+  },
+  "overlay": {
+    "targetRect": {
+      "x": 16,
+      "y": 108.80000305175781,
+      "width": 137.7624969482422,
+      "height": 31.200000762939453
+    },
+    "shownBox": {
+      "x": 16,
+      "y": 108.80000305175781,
+      "width": 137.7624969482422,
+      "height": 31.199996948242188
+    },
+    "cursor": {
+      "x": 84.8812484741211,
+      "y": 124.4000015258789
+    },
+    "highlightPixels": 3259,
+    "totalPixels": 1139304,
+    "screenshot": "overlay-highlight.png"
+  }
+}

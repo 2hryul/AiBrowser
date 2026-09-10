@@ -41,6 +41,11 @@ export interface TabManagerOptions {
   onStateChange: (state: BrowserState) => void;
   /** 새 탭 웹 콘텐츠에 단축키 등 공통 설정을 붙이는 훅. */
   onTabWebContents?: (wc: Electron.WebContents) => void;
+  /**
+   * window.open 으로 열린 팝업을 알린다.
+   * AI 탭이 띄운 팝업은 같은 스레드에 귀속되어야 도구가 그 탭을 다룰 수 있다.
+   */
+  onPopup?: (childTabId: number, parentTabId: number) => void;
   /** 방문 기록 적재. 히스토리 저장소를 직접 참조하지 않게 콜백으로 받는다. */
   onVisit?: (url: string, title: string) => void;
   onTitleUpdated?: (url: string, title: string) => void;
@@ -226,7 +231,10 @@ export class TabManager {
     // target=_blank 등 새 창 요청은 창을 띄우지 않고 새 탭으로 받는다.
     wc.setWindowOpenHandler(({ url }) => {
       const normalized = normalizeAddress(url);
-      if (normalized) this.createTab(normalized, tab.owner);
+      if (normalized) {
+        const childId = this.createTab(normalized, tab.owner);
+        this.opts.onPopup?.(childId, tab.id);
+      }
       return { action: 'deny' };
     });
   }
@@ -438,6 +446,11 @@ export class TabManager {
     if (!target) return false;
     this.selectTab(target.id);
     return true;
+  }
+
+  /** 탭 소유자. 도구가 "사람 탭을 건드리지 않는다" 를 판단하는 근거다. */
+  ownerOf(id: number): TabOwner | null {
+    return this.tabs.find((t) => t.id === id)?.owner ?? null;
   }
 
   /** 탭 인덱스 — 셸이 드래그 정렬 결과를 계산할 때 쓴다. */
