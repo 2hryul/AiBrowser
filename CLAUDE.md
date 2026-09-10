@@ -185,11 +185,12 @@ interface Tool {
 | 단계 | 완료 기준 |
 |---|---|
 | 결정 | ADR 0001(Vessel 포크 vs 신규) 확정. Vessel Windows 빌드로 사내 포털 3종 렌더링·세션 유지·MCP 시나리오 A 수행 결과 첨부 |
-| M0 브라우저 | 탭·옴니박스·네비·세션 영구화·히스토리·북마크·다운로드·읽기 모드·3단계 임포트 마법사·LoginBroker 3종. 사내 SSO 포털 1회 로그인 후 재시작 유지. 토큰 이관 코드 부재 확인 |
+| M0 브라우저 | 탭·주소창·네비·세션 영구화(`persist:helm`)·`app://home`·스모크 테스트. 재시작 후 세션 유지 (goals/GOAL-M0.md) |
 | M1 크롬 완성도 | 개발자도구·인쇄·PDF·찾기·단축키·다크모드, 사내 필수 확장 3종 |
 | M2 보이는 AI | 호환 도구 전부, Overlay·Handoff, MCP 서버. Claude Code로 시나리오 A·B·C 성공. password 마스킹 테스트 |
 | M3 제어 | 승인 3단계·grants 회수·거부·잠금, UndoManager(입력·탐색·탭·다운로드), StepLogPlayer. 시나리오 D·F 통과. "승인 없이 제출 불가" 테스트 |
 | M4 지속성 + 에이전트 | SessionStore·ThreadStore·CheckpointStore·Inbox·NoteStore·BookmarkMeta·ChangeTracker, 로컬 LLM Agent, MacroCache. 시나리오 A·B를 Ollama로, E(재시작 후 재개)·G(Handoff) 통과. 앱 종료 후 스레드 이어 말하기 |
+| M4c 로그인·임포트 | LoginBroker 3경로(inapp/oauth_modal/external), 3단계 임포트 마법사, `no-credential-files` lint, ADR 0003. 모의 IdP·프로필 fixture로 검증. `Cookies`/`Local State` 접근 0건 (goals/GOAL-M4c.md) |
 | M5 검증 계층 | 스레드 → 워크플로우 승격, 오라클, 골든셋. 시나리오 H 오탐 0 |
 | M6 파일럿 | 서명 NSIS, 정책 잠금, 10명 파일럿, 승인·되돌리기 사용 로그 수집 |
 
@@ -201,7 +202,7 @@ interface Tool {
 
 ## 자율 실행 (마일스톤 단위 무개입)
 
-이번 세션의 목표는 `GOAL.md`에 있다. 세션 시작 시 `GOAL.md`를 먼저 읽고 그 OBJECTIVE 하나만 SUCCESS CRITERIA가 모두 PASS일 때까지 개입 없이 수행한다. 세부 배경은 `docs/AI브라우저_ClaudeCode_자율실행_킷.md`. 요지:
+이번 세션의 목표는 루트 `GOAL.md`에 있다(마일스톤별 원본은 `goals/GOAL-M0.md … GOAL-M6.md`, 순서·선행조건은 `goals/README.md`). 세션 시작 시 `GOAL.md`를 먼저 읽고, PRECONDITIONS를 확인한 뒤(미충족이면 즉시 STOP), 그 OBJECTIVE 하나만 SUCCESS CRITERIA가 모두 PASS일 때까지 개입 없이 수행한다. M2 이후 검증은 사내 포털 대신 `fixtures/portals/` 모의 포털로 한다. 세부 배경은 `docs/AI브라우저_ClaudeCode_자율실행_킷.md`. 요지:
 
 - 한 세션의 목표는 마일스톤 하나. 그 범위 밖 기능은 만들지 않는다. 도중에 사람에게 되묻지 않는다(결정은 킷 1장의 기본값·ADR에 이미 박혀 있음).
 - "됐다"는 말로 판단하지 않는다. 매 변경 후 `typecheck → lint → build → smoke` 를 실제로 돌리고, 실패 로그를 읽어 고친 뒤 통과할 때까지 재시도한다.
