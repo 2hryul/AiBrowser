@@ -1,47 +1,16 @@
 import path from 'node:path';
 import BetterSqlite3, { type Database as Sqlite } from 'better-sqlite3';
+import { MIGRATIONS } from './migrations';
 
 /**
  * SQLite 연결과 스키마 마이그레이션.
- * 히스토리·북마크·자동완성만 여기 둔다. 스레드·체크포인트 등 M4 테이블은 그때 추가한다.
+ * 표 정의는 `migrations/` 의 번호 파일에 있고, 여기는 연결과 버전 올리기만 한다.
  *
  * better-sqlite3 13.x 는 N-API prebuild(win32-x64)를 함께 배포하므로 Electron ABI 에 맞춘
  * 네이티브 리빌드가 필요 없다 — 이 프로젝트 환경에 MSVC 툴체인이 없어 이 점이 전제 조건이다.
  */
 
 export type HelmDatabase = Sqlite;
-
-/** 스키마 버전. 올릴 때는 MIGRATIONS 에 항목을 append 만 한다(기존 항목 수정 금지). */
-const MIGRATIONS: readonly string[] = [
-  // v1 — M1: 방문 기록, 북마크, 자동완성
-  `
-  CREATE TABLE IF NOT EXISTS visits (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    url        TEXT    NOT NULL,
-    title      TEXT    NOT NULL DEFAULT '',
-    visited_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS visits_visited_at ON visits(visited_at DESC);
-  CREATE INDEX IF NOT EXISTS visits_url        ON visits(url);
-
-  CREATE TABLE IF NOT EXISTS bookmarks (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    title      TEXT    NOT NULL,
-    url        TEXT    NOT NULL,
-    folder     TEXT    NOT NULL DEFAULT '',
-    position   INTEGER NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_url ON bookmarks(url);
-
-  CREATE TABLE IF NOT EXISTS autofill (
-    name       TEXT    NOT NULL,
-    value      TEXT    NOT NULL,
-    use_count  INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (name, value)
-  );
-  `
-];
 
 /**
  * DB 를 열고 스키마를 최신으로 맞춘다.

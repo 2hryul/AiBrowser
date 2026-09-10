@@ -19,7 +19,8 @@
     "test:mcp": "electron-vite build && playwright test scripts/mcp-scenarios.ts",
     "test:policy": "vitest run tests/policy.test.ts",
     "test:scenarios": "electron-vite build && playwright test scripts/mcp-scenarios-m3.ts",
-    "test:undo": "electron-vite build && playwright test scripts/undo-tests.ts"
+    "test:undo": "electron-vite build && playwright test scripts/undo-tests.ts",
+    "test:persistence": "vitest run tests/persistence.test.ts tests/portals.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
