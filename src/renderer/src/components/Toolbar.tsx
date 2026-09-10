@@ -112,6 +112,72 @@ export function Toolbar({ tab, shell, bookmarks }: Props): JSX.Element {
 
       <button
         type="button"
+        aria-label="작업(스레드)"
+        aria-pressed={shell.panel === 'threads'}
+        title="작업 — 스레드·체크포인트 (Ctrl+Shift+K)"
+        className={iconButton}
+        onClick={() => togglePanel('threads')}
+      >
+        🧵
+      </button>
+
+      <button
+        type="button"
+        aria-label="받은편지함"
+        aria-pressed={shell.panel === 'inbox'}
+        title="받은편지함 (Ctrl+Shift+M)"
+        className={iconButton}
+        onClick={() => togglePanel('inbox')}
+      >
+        📥
+      </button>
+
+      <button
+        type="button"
+        aria-label="결과표"
+        aria-pressed={shell.panel === 'results'}
+        title="결과표 — CSV/MD/JSON 내보내기"
+        className={iconButton}
+        onClick={() => togglePanel('results')}
+      >
+        📊
+      </button>
+
+      <button
+        type="button"
+        aria-label="메모"
+        aria-pressed={shell.panel === 'notes'}
+        title="메모 — 사이트별 요령"
+        className={iconButton}
+        onClick={() => togglePanel('notes')}
+      >
+        📝
+      </button>
+
+      <button
+        type="button"
+        aria-label="세션"
+        aria-pressed={shell.panel === 'sessions'}
+        title="세션 — 계정별 쿠키 묶음"
+        className={iconButton}
+        onClick={() => togglePanel('sessions')}
+      >
+        👤
+      </button>
+
+      <button
+        type="button"
+        aria-label="변경 이력"
+        aria-pressed={shell.panel === 'changes'}
+        title="변경 이력 — 북마크 페이지 diff"
+        className={iconButton}
+        onClick={() => togglePanel('changes')}
+      >
+        🔀
+      </button>
+
+      <button
+        type="button"
         aria-label="되돌리기 목록"
         aria-pressed={shell.panel === 'undo'}
         title="되돌리기 목록 (Ctrl+Shift+U)"

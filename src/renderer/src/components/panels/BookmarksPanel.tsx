@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Bookmark } from '../../../../shared/types';
 import { PanelFrame } from './PanelFrame';
 import { ImportPanel } from './ImportPanel';
+import { BookmarkMetaForm } from './BookmarkMetaForm';
 
 interface Props {
   bookmarks: Bookmark[];
@@ -12,6 +13,8 @@ interface Props {
 export function BookmarksPanel({ bookmarks, activeTabId }: Props): JSX.Element {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
+  /** AI 힌트 편집을 펼친 북마크. 평소에는 접어 둔다 — 사람에게는 부수적인 정보다. */
+  const [metaId, setMetaId] = useState<number | null>(null);
 
   const commitRename = (bookmark: Bookmark): void => {
     const title = draft.trim();
@@ -33,11 +36,8 @@ export function BookmarksPanel({ bookmarks, activeTabId }: Props): JSX.Element {
       ) : (
         <ul data-bookmarks-count={bookmarks.length} className="divide-y divide-shell-line">
           {bookmarks.map((bookmark) => (
-            <li
-              key={bookmark.id}
-              data-bookmark-id={bookmark.id}
-              className="flex items-center gap-3 px-4 py-2 text-[13px]"
-            >
+            <li key={bookmark.id} data-bookmark-id={bookmark.id}>
+              <div className="flex items-center gap-3 px-4 py-2 text-[13px]">
               <span aria-hidden className="shrink-0 text-amber-400">
                 ★
               </span>
@@ -92,12 +92,25 @@ export function BookmarksPanel({ bookmarks, activeTabId }: Props): JSX.Element {
               </button>
               <button
                 type="button"
+                data-bookmark-meta-toggle={bookmark.id}
+                aria-expanded={metaId === bookmark.id}
+                title="에이전트가 읽는 의도·기대 콘텐츠·핵심 필드·요령"
+                className={smallButton}
+                onClick={() => setMetaId(metaId === bookmark.id ? null : bookmark.id)}
+              >
+                AI 힌트
+              </button>
+              <button
+                type="button"
                 aria-label={`${bookmark.title} 북마크 삭제`}
                 className={smallButton}
                 onClick={() => void window.helm.bookmarkRemove(bookmark.id)}
               >
                 삭제
               </button>
+              </div>
+
+              {metaId === bookmark.id ? <BookmarkMetaForm bookmarkId={bookmark.id} /> : null}
             </li>
           ))}
         </ul>

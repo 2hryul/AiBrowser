@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { TabState, TabStripOrientation } from '../../../shared/types';
+import { SessionBadge } from './control/SessionBadge';
 
 interface Props {
   tabs: TabState[];
@@ -158,6 +159,8 @@ function TabItem(props: TabItemProps): JSX.Element {
       >
         {tab.title}
       </span>
+
+      <SessionBadge sessionName={tab.sessionName} compact={!vertical} />
 
       {tab.audible || tab.muted ? (
         <button

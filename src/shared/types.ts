@@ -134,7 +134,14 @@ export type ShellPanel =
   | 'reader'
   | 'undo'
   | 'audit'
-  | 'policy';
+  | 'policy'
+  // M4a 지속성
+  | 'threads'
+  | 'inbox'
+  | 'notes'
+  | 'results'
+  | 'sessions'
+  | 'changes';
 
 /** 확장 로드 결과 — docs/extensions.md 기록용 */
 export interface ExtensionLoadResult {
@@ -298,4 +305,161 @@ export interface AuditReadView {
   runId: string;
   file: string | null;
   entries: AuditEntryView[];
+}
+
+// ─────────────────────────────────────────────────────────────
+// M4a 지속성 — 셸이 그리는 값
+// ─────────────────────────────────────────────────────────────
+
+export type ThreadStatusView =
+  | 'running'
+  | 'paused'
+  | 'waiting_approval'
+  | 'waiting_login'
+  | 'done'
+  | 'failed';
+
+export interface ThreadView {
+  id: string;
+  title: string;
+  status: ThreadStatusView;
+  sessionName: string;
+  stepCount: number;
+  stepLimit: number;
+  closedReason: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ThreadMessageView {
+  id: number;
+  threadId: string;
+  seq: number;
+  role: 'human' | 'ai' | 'system' | 'tool';
+  text: string;
+  tool: string | null;
+  args: unknown;
+  result: unknown;
+  createdAt: number;
+}
+
+export interface CheckpointView {
+  id: number;
+  threadId: string;
+  name: string;
+  note: string;
+  trigger: string;
+  messageIndex: number;
+  payload: {
+    tabs: { url: string; sessionName: string; scrollY: number; tabId?: number; title?: string }[];
+    results: unknown[];
+    noteVersions: { scope: string; version: number }[];
+    cursor: Record<string, unknown>;
+  };
+  createdAt: number;
+}
+
+export type InboxKindView = 'result' | 'approval' | 'login_required' | 'done' | 'failed';
+
+export interface InboxItemView {
+  id: number;
+  kind: InboxKindView;
+  threadId: string | null;
+  title: string;
+  summary: string;
+  evidencePath: string | null;
+  createdAt: number;
+  readAt: number | null;
+}
+
+export interface InboxStateView {
+  unread: number;
+  items: InboxItemView[];
+}
+
+export interface NoteView {
+  scope: string;
+  version: number;
+  text: string;
+  createdAt: number;
+}
+
+export interface NoteStateView {
+  note: NoteView | null;
+  history: NoteView[];
+}
+
+/** 메모·북마크 메타 저장 결과. 거부되면 이유가 붙는다. */
+export type NoteWriteView =
+  | { ok: true; note: NoteView; truncated: boolean }
+  | { ok: false; reason: 'scope' | 'credential' | 'pii'; message: string; matches?: string[] };
+
+export interface SessionInfoView {
+  name: string;
+  partition: string;
+  loginMethod: string | null;
+  loggedInAt: number | null;
+  createdAt: number;
+  lastUsedAt: number;
+}
+
+export interface SessionStateView {
+  current: string;
+  sessions: SessionInfoView[];
+}
+
+export interface BookmarkMetaView {
+  bookmarkId: number;
+  intent: string;
+  expectedContent: string;
+  keyFields: string[];
+  agentHints: string;
+  updatedAt: number;
+}
+
+export type BookmarkMetaWriteView =
+  | { ok: true; meta: BookmarkMetaView }
+  | { ok: false; reason: 'scope' | 'credential' | 'pii'; message: string; matches?: string[] };
+
+export interface SnapshotView {
+  id: number;
+  url: string;
+  title: string;
+  bytes: number;
+  truncated: boolean;
+  capturedAt: number;
+}
+
+export interface TrackedUrlView {
+  url: string;
+  title: string;
+  snapshots: number;
+  lastAt: number;
+}
+
+export interface PageDiffView {
+  url: string;
+  from: { id: number; capturedAt: number };
+  to: { id: number; capturedAt: number };
+  hunks: { kind: 'same' | 'added' | 'removed'; text: string; words: number }[];
+  addedWords: number;
+  removedWords: number;
+  unchangedWords: number;
+  changedWords: number;
+  coarse: boolean;
+}
+
+export interface ResumeView {
+  threadId: string;
+  checkpointId: number | null;
+  cursor: Record<string, unknown>;
+  results: unknown[];
+  messageIndex: number;
+  tabs: { tabId: number; url: string; sessionName: string }[];
+}
+
+export interface ExportResultView {
+  filePath: string;
+  rows: number;
+  bytes: number;
 }

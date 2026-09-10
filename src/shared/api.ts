@@ -3,20 +3,34 @@ import type {
   ApprovalRequestView,
   AuditReadView,
   Bookmark,
+  BookmarkMetaView,
+  BookmarkMetaWriteView,
   BrowserState,
+  CheckpointView,
   DownloadItem,
+  ExportResultView,
   ExtensionLoadResult,
   FindState,
   GrantScope,
   HistoryEntry,
+  InboxStateView,
+  NoteStateView,
+  NoteWriteView,
   OmniboxSuggestion,
+  PageDiffView,
   PendingPrompt,
   PolicyView,
   ProfileImportResult,
   ReaderPayload,
+  ResumeView,
+  SessionStateView,
   ShellPanel,
+  SnapshotView,
   TabStripOrientation,
   ThemeSource,
+  ThreadMessageView,
+  ThreadView,
+  TrackedUrlView,
   UndoOutcomeView,
   UndoStackView
 } from './types';
@@ -140,6 +154,61 @@ export interface HelmApi {
   /** 그 단계의 URL 을 사람 소유 새 탭으로 연다. */
   openAuditUrl(url: string): Promise<number | null>;
 
+  // ── M4a 지속성 ──
+
+  // 스레드 — 앱을 닫아도 같은 스레드에 이어 말할 수 있다.
+  getThreads(): Promise<ThreadView[]>;
+  createThread(title?: string): Promise<ThreadView | null>;
+  getThreadMessages(threadId: string): Promise<ThreadMessageView[]>;
+  /** 사람이 한 마디 보탠다. */
+  sayToThread(threadId: string, text: string): Promise<ThreadMessageView | null>;
+  /** "이어서" — 마지막 체크포인트로 되돌리고 running 으로. */
+  resumeThread(threadId: string): Promise<ResumeView | null>;
+  /** "여기까지" — 스레드를 끝내고 탭 소유권을 사람에게. */
+  stopThread(threadId: string): Promise<boolean>;
+
+  // 받은편지함
+  getInbox(): Promise<InboxStateView>;
+  markInboxRead(id: number): Promise<boolean>;
+  markInboxAllRead(): Promise<number>;
+  removeInboxItem(id: number): Promise<boolean>;
+
+  // 체크포인트
+  getCheckpoints(threadId: string): Promise<CheckpointView[]>;
+  saveCheckpoint(threadId: string, name?: string): Promise<CheckpointView | null>;
+  restoreCheckpoint(id: number): Promise<{ tabs: { tabId: number; url: string }[] } | null>;
+
+  // 메모
+  getNoteScopes(): Promise<string[]>;
+  getNote(scope: string): Promise<NoteStateView | null>;
+  appendNote(scope: string, text: string): Promise<NoteWriteView>;
+  restoreNote(scope: string, version: number): Promise<NoteWriteView>;
+
+  // 세션
+  getSessions(): Promise<SessionStateView>;
+  useSession(name: string): Promise<{ name: string; partition: string } | null>;
+
+  // 북마크 메타(AI 힌트)
+  getBookmarkMeta(bookmarkId: number): Promise<BookmarkMetaView | null>;
+  setBookmarkMeta(
+    bookmarkId: number,
+    value: {
+      intent?: string;
+      expectedContent?: string;
+      keyFields?: string[];
+      agentHints?: string;
+    }
+  ): Promise<BookmarkMetaWriteView>;
+
+  // 변경 이력
+  getTrackedUrls(): Promise<TrackedUrlView[]>;
+  getPageHistory(url: string): Promise<SnapshotView[]>;
+  getPageDiff(url: string, fromId?: number, toId?: number): Promise<PageDiffView | null>;
+
+  // 결과표
+  getResults(threadId: string): Promise<unknown[]>;
+  exportResults(threadId: string, format: 'csv' | 'md' | 'json'): Promise<ExportResultView | null>;
+
   // 구독 — 반환값을 호출하면 해제된다.
   onStateChanged(listener: (state: BrowserState) => void): () => void;
   onShellChanged(listener: (state: ShellState) => void): () => void;
@@ -152,4 +221,11 @@ export interface HelmApi {
   onApprovalRequested(listener: (request: ApprovalRequestView) => void): () => void;
   onApprovalQueueChanged(listener: (queue: ApprovalRequestView[]) => void): () => void;
   onUndoChanged(listener: (stack: UndoStackView) => void): () => void;
+  onThreadsChanged(listener: (threads: ThreadView[]) => void): () => void;
+  onInboxChanged(listener: (state: InboxStateView) => void): () => void;
+  onCheckpointsChanged(
+    listener: (payload: { threadId: string; checkpoints: CheckpointView[] }) => void
+  ): () => void;
+  onSessionsChanged(listener: (state: SessionStateView) => void): () => void;
+  onTrackedUrlsChanged(listener: (urls: TrackedUrlView[]) => void): () => void;
 }

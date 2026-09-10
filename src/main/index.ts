@@ -622,6 +622,8 @@ function createWindow(helmSession: Session): void {
     openUndoPanel: () => setPanel(shell.panel === 'undo' ? 'none' : 'undo'),
     openStepLog: () => setPanel(shell.panel === 'audit' ? 'none' : 'audit'),
     openPolicy: () => setPanel(shell.panel === 'policy' ? 'none' : 'policy'),
+    openThreads: () => setPanel(shell.panel === 'threads' ? 'none' : 'threads'),
+    openInbox: () => setPanel(shell.panel === 'inbox' ? 'none' : 'inbox'),
     bookmarkCurrentPage: () => void toggleBookmarkForActiveTab(),
     toggleReader: () => void toggleReaderForActiveTab(),
     openFind: () => {
@@ -1008,7 +1010,13 @@ function registerIpc(): void {
       'reader',
       'undo',
       'audit',
-      'policy'
+      'policy',
+      'threads',
+      'inbox',
+      'notes',
+      'results',
+      'sessions',
+      'changes'
     ];
     if (typeof panel !== 'string' || !allowed.includes(panel as ShellPanel)) return false;
     setPanel(panel as ShellPanel);

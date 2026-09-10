@@ -15,6 +15,12 @@ import { PromptDialog } from './components/control/PromptDialog';
 import { ApprovalDialog } from './components/control/ApprovalDialog';
 import { UndoPanel } from './components/sidebar/UndoPanel';
 import { StepLogPlayer } from './components/sidebar/StepLogPlayer';
+import { ThreadsPanel } from './components/sidebar/ThreadsPanel';
+import { InboxView } from './components/sidebar/InboxView';
+import { NotesPanel } from './components/sidebar/NotesPanel';
+import { ResultsTable } from './components/sidebar/ResultsTable';
+import { SessionsPanel } from './components/panels/SessionsPanel';
+import { ChangesPanel } from './components/panels/ChangesPanel';
 
 export function App(): JSX.Element {
   const tabs = useShellStore((s) => s.tabs);
@@ -160,6 +166,12 @@ export function App(): JSX.Element {
           {shell.panel === 'undo' ? <UndoPanel /> : null}
           {shell.panel === 'audit' ? <StepLogPlayer /> : null}
           {shell.panel === 'policy' ? <PolicyPanel /> : null}
+          {shell.panel === 'threads' ? <ThreadsPanel /> : null}
+          {shell.panel === 'inbox' ? <InboxView /> : null}
+          {shell.panel === 'notes' ? <NotesPanel /> : null}
+          {shell.panel === 'results' ? <ResultsTable /> : null}
+          {shell.panel === 'sessions' ? <SessionsPanel tabs={tabs} /> : null}
+          {shell.panel === 'changes' ? <ChangesPanel /> : null}
           {shell.panel === 'none' && tabs.length === 0 ? (
             <div className="grid h-full place-items-center text-[13px] text-shell-muted">
               탭이 없습니다. Ctrl+T 로 새 탭을 엽니다.

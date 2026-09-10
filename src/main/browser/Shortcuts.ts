@@ -23,6 +23,9 @@ export interface ShortcutHandlers {
   openUndoPanel: () => void;
   openStepLog: () => void;
   openPolicy: () => void;
+  /** M4a 지속성 화면 — 작업(스레드) / 받은편지함 */
+  openThreads: () => void;
+  openInbox: () => void;
   bookmarkCurrentPage: () => void;
   toggleReader: () => void;
   openFind: () => void;
@@ -119,6 +122,10 @@ export function attachShortcuts(wc: WebContents, handlers: ShortcutHandlers): vo
           return run(handlers.openUndoPanel);
         case 'g':
           return run(handlers.openStepLog);
+        case 'k':
+          return run(handlers.openThreads);
+        case 'm':
+          return run(handlers.openInbox);
         case 'tab':
           return run(handlers.previousTab);
         default:

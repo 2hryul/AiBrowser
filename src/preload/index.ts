@@ -104,6 +104,42 @@ const api: HelmApi = {
   readAudit: () => ipcRenderer.invoke(IPC.auditRead),
   openAuditUrl: (url) => ipcRenderer.invoke(IPC.auditOpenUrl, url),
 
+  // ── M4a 지속성 ──
+  getThreads: () => ipcRenderer.invoke(IPC.threadsGet),
+  createThread: (title) => ipcRenderer.invoke(IPC.threadCreate, title),
+  getThreadMessages: (threadId) => ipcRenderer.invoke(IPC.threadMessages, threadId),
+  sayToThread: (threadId, text) => ipcRenderer.invoke(IPC.threadSay, threadId, text),
+  resumeThread: (threadId) => ipcRenderer.invoke(IPC.threadResume, threadId),
+  stopThread: (threadId) => ipcRenderer.invoke(IPC.threadStop, threadId),
+
+  getInbox: () => ipcRenderer.invoke(IPC.inboxGet),
+  markInboxRead: (id) => ipcRenderer.invoke(IPC.inboxMarkRead, id),
+  markInboxAllRead: () => ipcRenderer.invoke(IPC.inboxMarkAllRead),
+  removeInboxItem: (id) => ipcRenderer.invoke(IPC.inboxRemove, id),
+
+  getCheckpoints: (threadId) => ipcRenderer.invoke(IPC.checkpointsGet, threadId),
+  saveCheckpoint: (threadId, name) => ipcRenderer.invoke(IPC.checkpointSave, threadId, name),
+  restoreCheckpoint: (id) => ipcRenderer.invoke(IPC.checkpointRestore, id),
+
+  getNoteScopes: () => ipcRenderer.invoke(IPC.notesScopes),
+  getNote: (scope) => ipcRenderer.invoke(IPC.notesGet, scope),
+  appendNote: (scope, text) => ipcRenderer.invoke(IPC.noteAppend, scope, text),
+  restoreNote: (scope, version) => ipcRenderer.invoke(IPC.noteRestore, scope, version),
+
+  getSessions: () => ipcRenderer.invoke(IPC.sessionsGet),
+  useSession: (name) => ipcRenderer.invoke(IPC.sessionUse, name),
+
+  getBookmarkMeta: (bookmarkId) => ipcRenderer.invoke(IPC.bookmarkMetaGet, bookmarkId),
+  setBookmarkMeta: (bookmarkId, value) =>
+    ipcRenderer.invoke(IPC.bookmarkMetaSet, bookmarkId, value),
+
+  getTrackedUrls: () => ipcRenderer.invoke(IPC.pageHistoryUrls),
+  getPageHistory: (url) => ipcRenderer.invoke(IPC.pageHistoryGet, url),
+  getPageDiff: (url, fromId, toId) => ipcRenderer.invoke(IPC.pageDiffGet, url, fromId, toId),
+
+  getResults: (threadId) => ipcRenderer.invoke(IPC.resultsGet, threadId),
+  exportResults: (threadId, format) => ipcRenderer.invoke(IPC.resultsExport, threadId, format),
+
   // 구독
   onStateChanged: (listener) => subscribe(IPC.stateChanged, listener),
   onShellChanged: (listener) => subscribe(IPC.shellChanged, listener),
@@ -123,7 +159,12 @@ const api: HelmApi = {
   onPromptRequested: (listener) => subscribe(IPC.promptRequested, listener),
   onApprovalRequested: (listener) => subscribe(IPC.approvalRequested, listener),
   onApprovalQueueChanged: (listener) => subscribe(IPC.approvalQueueChanged, listener),
-  onUndoChanged: (listener) => subscribe(IPC.undoChanged, listener)
+  onUndoChanged: (listener) => subscribe(IPC.undoChanged, listener),
+  onThreadsChanged: (listener) => subscribe(IPC.threadsChanged, listener),
+  onInboxChanged: (listener) => subscribe(IPC.inboxChanged, listener),
+  onCheckpointsChanged: (listener) => subscribe(IPC.checkpointsChanged, listener),
+  onSessionsChanged: (listener) => subscribe(IPC.sessionsChanged, listener),
+  onTrackedUrlsChanged: (listener) => subscribe(IPC.pageHistoryUrls, listener)
 };
 
 contextBridge.exposeInMainWorld('helm', api);
