@@ -24,7 +24,7 @@ interface HelmBrowserState {
 }
 
 interface HelmTabManagerHook {
-  createTab: (url?: string, owner?: 'human' | 'ai') => number;
+  createTab: (url?: string, owner?: 'human' | 'ai', sessionName?: string) => number;
   closeTab: (id: number) => void;
   selectTab: (id: number) => void;
   navigate: (id: number, input: string) => boolean;

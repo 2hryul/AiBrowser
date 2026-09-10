@@ -1,0 +1,66 @@
+{
+  "namedSessions": {
+    "partitions": {
+      "itsm": "persist:helm:itsm",
+      "gw": "persist:helm:gw",
+      "default": "persist:helm"
+    },
+    "itsmCookies": [
+      {
+        "name": "helm_sid",
+        "value": "itsm-1234"
+      }
+    ],
+    "gwCookies": [
+      {
+        "name": "helm_sid",
+        "value": "gw-5678"
+      }
+    ],
+    "crossOver": 0,
+    "loginMethods": {
+      "itsm": "inapp",
+      "gw": "oauth_modal"
+    },
+    "badges": [
+      "gw",
+      "itsm"
+    ],
+    "shot": "sessions-and-badges.png"
+  },
+  "threadContinuity": {
+    "threadId": "persistence-e2e",
+    "statusAfterRestart": "paused",
+    "messagesBefore": 2,
+    "messagesAfter": 3,
+    "seqs": [
+      1,
+      2,
+      3
+    ],
+    "shot": "threads-continued.png"
+  },
+  "resultsExport": {
+    "rows": 3,
+    "csv": {
+      "file": "results-persistence-e2e-2026-09-10T08-13-03-812Z.csv",
+      "bytes": 202
+    },
+    "md": {
+      "file": "results-persistence-e2e-2026-09-10T08-13-03-812Z.md",
+      "bytes": 275
+    },
+    "json": {
+      "file": "results-persistence-e2e-2026-09-10T08-13-03-812Z.json",
+      "bytes": 382
+    },
+    "columns": [
+      "pageId",
+      "kind",
+      "step",
+      "url",
+      "note"
+    ],
+    "shot": "results-table.png"
+  }
+}
