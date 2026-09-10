@@ -221,6 +221,7 @@ interface HelmE2EHook {
   // M3
   getPolicy: () => HelmPolicyHook | null;
   getUndo: () => HelmUndoHook | null;
+  undoActiveRunId: () => string;
   getAudit: () => HelmAuditHook | null;
   runId: string;
   approvalQueue: () => HelmApprovalRequest[];

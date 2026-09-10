@@ -925,10 +925,12 @@ function registerIpc(): void {
   });
 
   // ── 되돌리기 ──
-  ipcMain.handle(IPC.undoGet, () => ({
-    runId: APP_RUN_ID,
-    records: undoManager?.list(APP_RUN_ID) ?? []
-  }));
+  ipcMain.handle(IPC.undoGet, () => {
+    // 셸이 처음 열릴 때는 가장 최근에 움직인 스택을 보여준다 — MCP 클라이언트가 만든
+    // 항목도 사람이 같은 목록에서 되돌릴 수 있어야 한다.
+    const runId = undoManager?.activeRunId() ?? APP_RUN_ID;
+    return { runId, records: undoManager?.list(runId) ?? [] };
+  });
 
   ipcMain.handle(IPC.undoApply, async (_e, runId: unknown, id: unknown) => {
     if (!undoManager) return { ok: false, reason: 'failed', message: '되돌리기 준비 안 됨' };
@@ -1115,6 +1117,8 @@ void app.whenReady().then(async () => {
       getPolicy: () => policy,
       getApproval: () => approval,
       getUndo: () => undoManager,
+      /** 셸의 UndoPanel 이 보고 있는 실행 단위 — MCP 연결이 만든 스택일 수 있다. */
+      undoActiveRunId: () => undoManager?.activeRunId() ?? APP_RUN_ID,
       getAudit: () => auditLog,
       runId: APP_RUN_ID,
       approvalQueue: () => approvalQueue,

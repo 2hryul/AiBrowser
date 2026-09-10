@@ -853,3 +853,154 @@ test('[StepLogPlayer] 시나리오 로그를 단계별로 재생하고 URL 을 �
     shot: playerShot
   };
 });
+
+// ─────────────────────────────────────────────────────────────
+// 설정 화면 — grants 조회·회수, 거부 목록 편집, 잠금 상태
+// ─────────────────────────────────────────────────────────────
+
+test('[정책 화면] 승인 기록을 회수하고 거부 목록을 편집한다', async () => {
+  await app.evaluate(() => globalThis.__helm?.setPanel('policy'));
+
+  // 패널은 열린 뒤 정책을 비동기로 읽어 온다 — 목록이 그려질 때까지 기다린다.
+  await expect
+    .poll(
+      async () =>
+        JSON.parse(
+          await shellEval(
+            `JSON.stringify(Number(document.querySelector('[data-grant-count]')?.getAttribute('data-grant-count') ?? 0))`
+          )
+        ) as number,
+      { message: '승인 목록 대기', timeout: 15_000 }
+    )
+    .toBeGreaterThan(0);
+
+  // 시나리오 F 에서 남긴 thread 범위 승인이 목록에 보여야 한다.
+  const before = JSON.parse(
+    await shellEval(`(() => {
+      const list = document.querySelector('[data-grant-count]');
+      return JSON.stringify({
+        locked: document.querySelector('[data-policy-locked]')?.getAttribute('data-policy-locked'),
+        count: Number(list?.getAttribute('data-grant-count') ?? 0),
+        subjects: [...document.querySelectorAll('[data-grant-subject]')].map((el) =>
+          el.getAttribute('data-grant-subject')
+        )
+      });
+    })()`)
+  ) as { locked: string; count: number; subjects: string[] };
+
+  expect(before.locked, '잠금 상태가 표시되지 않았습니다').toBe('false');
+  expect(before.count, `기록된 승인 ${before.count}건`).toBeGreaterThan(0);
+  expect(before.subjects.some((subject) => subject?.startsWith('site:'))).toBe(true);
+
+  const shot = await captureShell('policy-panel.png');
+
+  // 회수 — 정책 파일에서도 사라져야 한다.
+  await shellEval(
+    `JSON.stringify(Boolean(document.querySelector('[data-grant-revoke="0"]')?.click() ?? true))`
+  );
+
+  await expect
+    .poll(() => app.evaluate(() => globalThis.__helm?.getPolicy()?.listGrants().length ?? -1), {
+      message: '승인 회수 대기',
+      timeout: 10_000
+    })
+    .toBe(before.count - 1);
+
+  // 거부 목록 편집 — 렌더러에서 바꾼 값이 정책에 반영된다.
+  await shellEval(`(() => {
+    const input = document.querySelector('[data-deny-hosts]');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, 'evil.example.com, portal-z');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('[data-deny-save]').click();
+    return JSON.stringify(true);
+  })()`);
+
+  await expect
+    .poll(
+      () =>
+        app.evaluate(() => globalThis.__helm?.getPolicy()?.snapshot().deny.hosts ?? []),
+      { message: '거부 목록 저장 대기', timeout: 10_000 }
+    )
+    .toEqual(['evil.example.com', 'portal-z']);
+
+  // 거부한 도메인은 승인 여부와 무관하게 막힌다.
+  const blocked = await callTool<BlockedLike>('navigate', { url: 'https://evil.example.com/' });
+  expect(isBlocked(blocked), '거부 목록의 도메인이 막히지 않았습니다').toBe(true);
+  expect(blocked.by).toBe('policy');
+
+  summary['policyPanel'] = {
+    grantsBefore: before.count,
+    grantsAfterRevoke: before.count - 1,
+    denyHosts: ['evil.example.com', 'portal-z'],
+    deniedNavigate: blocked.by,
+    shot
+  };
+});
+
+test('[되돌리기 화면] AI 가 MCP 로 만든 항목과 봉인 사유를 사람이 본다', async () => {
+  await app.evaluate(() => globalThis.__helm?.setPanel('undo'));
+
+  await expect
+    .poll(
+      async () =>
+        JSON.parse(
+          await shellEval(
+            `JSON.stringify(Number(document.querySelector('[data-undo-count]')?.getAttribute('data-undo-count') ?? 0))`
+          )
+        ) as number,
+      { message: '되돌리기 목록 대기', timeout: 15_000 }
+    )
+    .toBeGreaterThan(0);
+
+  const view = JSON.parse(
+    await shellEval(`(() => {
+      const list = document.querySelector('[data-undo-count]');
+      return JSON.stringify({
+        count: Number(list?.getAttribute('data-undo-count') ?? 0),
+        sealed: [...document.querySelectorAll('[data-undo-sealed="true"]')].length,
+        tools: [...document.querySelectorAll('[data-undo-id]')].map((el) =>
+          el.querySelector('span')?.textContent
+        )
+      });
+    })()`)
+  ) as { count: number; sealed: number; tools: (string | null)[] };
+
+  // 시나리오 F 의 입력(form_input·computer type)이 사람 목록에 보여야 한다.
+  expect(view.count, `되돌리기 목록 ${view.count}건`).toBeGreaterThan(0);
+  expect(view.tools).toContain('form_input');
+
+  // 봉인 표시 — 제출 후에는 되돌릴 수 없다는 사실과 **사유**가 화면에 나와야 한다.
+  // (시나리오 F 는 상신을 전부 거부했으므로 봉인이 없다. 여기서 직접 봉인해 표시를 본다.)
+  const sealedByHook = await app.evaluate(() => {
+    const hook = globalThis.__helm;
+    const runId = hook?.undoActiveRunId() ?? '';
+    return hook?.getUndo()?.seal(runId, '상신 실행 후에는 되돌릴 수 없습니다') ?? 0;
+  });
+  expect(sealedByHook, '봉인된 항목이 없습니다').toBeGreaterThan(0);
+
+  const sealedView = JSON.parse(
+    await shellEval(`(() => {
+      const row = document.querySelector('[data-undo-sealed="true"]');
+      return JSON.stringify({
+        rows: document.querySelectorAll('[data-undo-sealed="true"]').length,
+        text: row ? row.textContent : null,
+        buttonDisabled: row ? Boolean(row.querySelector('button')?.disabled) : null
+      });
+    })()`)
+  ) as { rows: number; text: string | null; buttonDisabled: boolean | null };
+
+  expect(sealedView.rows, '봉인 표시가 화면에 없습니다').toBe(sealedByHook);
+  expect(sealedView.text).toContain('상신 실행 후에는 되돌릴 수 없습니다');
+  expect(sealedView.buttonDisabled, '봉인 항목의 되돌리기 버튼이 살아 있습니다').toBe(true);
+
+  const shot = await captureShell('undo-panel.png');
+
+  summary['undoPanel'] = {
+    count: view.count,
+    sealedOnLoad: view.sealed,
+    sealedByHook,
+    sealedRowsShown: sealedView.rows,
+    shot
+  };
+});

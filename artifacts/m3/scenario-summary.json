@@ -14,7 +14,7 @@
     "piiInLog": 0,
     "piiInSamples": 60,
     "reviewFlagged": 5,
-    "auditFile": "D:\\SOURCE\\aiBrowser\\.m3-profile\\audit\\run-mtv41tzk.jsonl",
+    "auditFile": "D:\\SOURCE\\aiBrowser\\.m3-profile\\audit\\run-mtv4f6p6.jsonl",
     "output": "scenario-d-table.json",
     "shots": [
       {
@@ -81,10 +81,27 @@
   },
   "stepLogPlayer": {
     "steps": 61,
-    "stepsWithScreenshot": 12,
-    "inspectedStep": 6,
+    "stepsWithScreenshot": 11,
+    "inspectedStep": 12,
     "openedTabUrl": "app://portal-d/",
     "openedTabOwner": "human",
     "shot": "step-log-player.png"
+  },
+  "policyPanel": {
+    "grantsBefore": 2,
+    "grantsAfterRevoke": 1,
+    "denyHosts": [
+      "evil.example.com",
+      "portal-z"
+    ],
+    "deniedNavigate": "policy",
+    "shot": "policy-panel.png"
+  },
+  "undoPanel": {
+    "count": 15,
+    "sealedOnLoad": 0,
+    "sealedByHook": 5,
+    "sealedRowsShown": 5,
+    "shot": "undo-panel.png"
   }
 }

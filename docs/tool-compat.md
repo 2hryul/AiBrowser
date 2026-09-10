@@ -1,4 +1,4 @@
-# ToolSurface 호환표 (M2)
+# ToolSurface 호환표 (M3)
 
 Helm 의 도구 이름·인자는 Claude Browser 와 호환한다. 같은 이름이면 같은 뜻으로 쓸 수 있어야
 외부 MCP 클라이언트(Claude Code)가 배운 대로 동작한다. 이 문서는 **같은 것**과 **다른 것**을 적는다.
@@ -6,7 +6,7 @@ Helm 의 도구 이름·인자는 Claude Browser 와 호환한다. 같은 이름
 구현: `src/main/tools/` (도구), `src/main/cdp/` (페이지 제어), `src/main/mcp/Server.ts` (노출).
 등록 목록의 단일 출처는 `src/main/tools/register.ts` 다.
 
-## 노출 도구 19종
+## 노출 도구 21종
 
 | 도구 | sideEffect | 되돌리기 | 요약 |
 |---|---|---|---|
@@ -28,11 +28,17 @@ Helm 의 도구 이름·인자는 Claude Browser 와 호환한다. 같은 이름
 | `download` | write | 파일 삭제 | 파일 받기 |
 | `upload` | input | — | 파일 선택 입력 설정 |
 | `ask_user` | read | — | 사람에게 묻기 |
-| `request_access` | read | — | 도메인 접근 허락 요청 |
+| `request_access` | read | — | 도메인 접근 허락 요청(승인 3단계) |
+| `undo_list` | read | — | 되돌릴 수 있는 항목 나열(`sealed` 표시 포함) |
+| `undo` | write | **없음(irreversible)** | 최근 작업 되돌리기. 재실행은 없다 |
 
-`irreversible: true` 는 `javascript` 하나다. M3 Policy 가 이 표시를 보고 승인을 강제한다.
-나머지는 역연산이 정의되어 있고, M3 UndoManager 가 그 역연산을 스택에 쌓는다.
-M2 에는 아직 Policy·UndoManager 가 없다(GOAL-M2 OUT OF SCOPE) — 계약만 갖춰 둔 상태다.
+`irreversible: true` 는 `javascript` 와 `undo` 둘이다. Policy 가 이 표시를 보고 승인을 강제한다.
+나머지 **상태를 바꾸는** 도구는 역연산이 정의되어 있고 UndoManager 가 그 역연산을 스택에 쌓는다.
+읽기 도구(`sideEffect: 'read'`)는 되돌릴 대상이 없어 `inverse` 를 요구하지 않는다 —
+lint 규칙 `require-tool-inverse` 도 같은 경계를 쓴다(근거는 `docs/adr/0002-승인과-되돌리기-경계.md`).
+
+`navigate_history`·`preview_start`·`upload`·`computer(type)` 의 역연산은 M3 에서 구현했다.
+`computer` 는 `type` 만 되돌릴 수 있다(입력 전 값 복원). 클릭·스크롤·키는 되돌릴 대상이 없다.
 
 ## Claude Browser 와 같은 것
 
@@ -109,7 +115,14 @@ LLM 을 붙인 2차 추론은 M4 다(GOAL-M2 IN SCOPE 가 1차 규칙만으로 �
 
 ### 11. Helm 에만 있는 것
 
-- `request_access` — 아직 허용되지 않은 도메인 접근 전 사람의 허락. M3 에서 승인 3단계로 확장.
+- `request_access` — 아직 허용되지 않은 도메인 접근 전 사람의 허락. 사람이 고른 범위
+  (`once` / `thread` / `domain`)가 결과의 `scope` 로 돌아오고 `policy.json.grants` 에 기록된다.
+  거부하면 `{granted: false, scope: null}` 이다.
+- `undo_list` / `undo` — 사람 UI(UndoPanel)와 **같은 스택**을 본다. AI 는 자기 실행 단위(runId)의
+  항목만 되돌릴 수 있고, 제출·상신 뒤 봉인된 항목은 `reason: 'sealed'` 로 거부된다.
+- **`{blocked_by_policy: true, reason, tool, by}` 반환** — 정책이 막거나 사람이 거부하면 오류가
+  아니라 결과로 돌려준다. 호출자가 "왜 막혔는지" 보고 다음 수를 정할 수 있어야 한다.
+  이 결과는 감사 로그에도 그대로 남는다.
 - `ask_user` — 로그인·캡차처럼 AI 가 대신할 수 없는 지점. 세션 만료 흐름의 핵심이다.
 - **`{paused: true}` 반환** — 사람이 AI 탭을 건드리면 진행 중 도구 호출이 오류가 아니라
   `{paused, reason, tabId}` 를 돌려준다. 중단은 정상 흐름이다(불변 조건 6).
@@ -130,7 +143,7 @@ claude mcp add helm --transport http http://127.0.0.1:3100/mcp --header "Authori
 - **127.0.0.1 에만 바인딩한다.** 다른 기기에서 붙을 수 없다.
 - 토큰은 `Authorization: Bearer` 헤더 또는 `?token=` 쿼리로 받는다. 없으면 401.
 - `HELM_MCP_PORT` 로 포트를, `HELM_MCP_DISABLED=1` 로 서버를 끌 수 있다.
-- 토큰 발급·회수 UI 와 승인 3단계는 M3 다.
+- 승인 3단계는 M3 에서 구현했다. 토큰 발급·회수 UI 는 M6(파일럿) 다.
 
 ### stdio
 
@@ -145,4 +158,5 @@ stdio↔HTTP 를 중계하는 작은 브리지 스크립트가 맞는 형태이�
 1. `src/main/tools/` 에서 고치고 `register.ts` 에 반영
 2. 이 문서의 표와 차이점을 갱신
 3. `npm run test:tools` (스키마·마스킹·규칙) 와 `npm run test:mcp` (시나리오) 재실행
-4. 되돌릴 수 있는 도구를 추가하면 `inverse` 단위 테스트 필수(M3 UndoManager 연결 시)
+4. 되돌릴 수 있는 도구를 추가하면 `inverse` 테스트 필수 — `npm run test:undo`
+5. 승인 판정이 바뀌면 `npm run test:policy` 와 `npm run test:scenarios` 재실행

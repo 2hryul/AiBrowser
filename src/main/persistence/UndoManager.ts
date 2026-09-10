@@ -39,6 +39,12 @@ export type UndoOutcome =
 
 export class UndoManager {
   private readonly stacks = new Map<string, Slot[]>();
+  /**
+   * 마지막으로 바뀐 실행 단위. 셸의 UndoPanel 이 처음 열릴 때 무엇을 보여줄지 정한다 —
+   * MCP 클라이언트가 만든 항목도 사람이 같은 목록에서 되돌릴 수 있어야 한다
+   * (불변 조건: 사람 UI 와 AI 도구는 같은 스택을 본다).
+   */
+  private lastChangedRunId: string | null = null;
   private counter = 0;
   private readonly onChange: (runId: string, records: UndoRecord[]) => void;
 
@@ -52,6 +58,11 @@ export class UndoManager {
     const created: Slot[] = [];
     this.stacks.set(runId, created);
     return created;
+  }
+
+  /** 마지막으로 항목이 쌓인 실행 단위. 없으면 null. */
+  activeRunId(): string | null {
+    return this.lastChangedRunId;
   }
 
   /** 도구가 성공한 뒤 역연산을 등록한다. */
@@ -73,6 +84,7 @@ export class UndoManager {
     stack.push(slot);
     while (stack.length > STACK_LIMIT) stack.shift();
 
+    this.lastChangedRunId = runId;
     this.emit(runId);
     return toRecord(slot);
   }
