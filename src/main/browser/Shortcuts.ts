@@ -19,6 +19,10 @@ export interface ShortcutHandlers {
   openHistory: () => void;
   openDownloads: () => void;
   openBookmarkManager: () => void;
+  /** M3 제어 화면 — 되돌리기 / 단계 로그 / 정책 */
+  openUndoPanel: () => void;
+  openStepLog: () => void;
+  openPolicy: () => void;
   bookmarkCurrentPage: () => void;
   toggleReader: () => void;
   openFind: () => void;
@@ -71,6 +75,8 @@ export function attachShortcuts(wc: WebContents, handlers: ShortcutHandlers): vo
           return run(handlers.openFind);
         case 'p':
           return run(handlers.print);
+        case ',':
+          return run(handlers.openPolicy);
         case 'tab':
           return run(handlers.nextTab);
         // 확대/축소: 키보드 배열에 따라 '+'·'='·'-'·'_' 가 모두 올 수 있다.
@@ -109,6 +115,10 @@ export function attachShortcuts(wc: WebContents, handlers: ShortcutHandlers): vo
           return run(handlers.cycleTheme);
         case 'e':
           return run(handlers.toggleOrientation);
+        case 'u':
+          return run(handlers.openUndoPanel);
+        case 'g':
+          return run(handlers.openStepLog);
         case 'tab':
           return run(handlers.previousTab);
         default:

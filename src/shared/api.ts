@@ -1,18 +1,24 @@
 import type {
   AiState,
+  ApprovalRequestView,
+  AuditReadView,
   Bookmark,
   BrowserState,
   DownloadItem,
   ExtensionLoadResult,
   FindState,
+  GrantScope,
   HistoryEntry,
   OmniboxSuggestion,
   PendingPrompt,
+  PolicyView,
   ProfileImportResult,
   ReaderPayload,
   ShellPanel,
   TabStripOrientation,
-  ThemeSource
+  ThemeSource,
+  UndoOutcomeView,
+  UndoStackView
 } from './types';
 
 /** 셸이 그리는 브라우저 크롬의 상태 — 탭 목록과 별개로 바뀌므로 따로 둔다. */
@@ -114,6 +120,26 @@ export interface HelmApi {
   /** ask_user / request_access 에 답한다. */
   answerPrompt(id: string, answer: string): Promise<boolean>;
 
+  // 승인 3단계 — scope 가 null 이면 거부다(자동 승인 경로는 없다).
+  getApprovalQueue(): Promise<ApprovalRequestView[]>;
+  answerApproval(id: string, scope: GrantScope | null): Promise<boolean>;
+
+  // 정책 설정
+  getPolicy(): Promise<PolicyView | null>;
+  revokeGrant(index: number): Promise<boolean>;
+  setPolicyDeny(hosts: string[], tools: string[]): Promise<boolean>;
+  setPolicySite(host: string, decision: 'allow' | 'ask' | 'deny'): Promise<boolean>;
+
+  // 되돌리기 — 사람 UI 와 AI `undo` 도구가 같은 스택을 본다.
+  getUndo(): Promise<UndoStackView>;
+  /** id 를 생략하면 그 스레드의 가장 최근 항목을 되돌린다. */
+  applyUndo(runId: string, id?: string): Promise<UndoOutcomeView>;
+
+  // 단계 로그 재생
+  readAudit(): Promise<AuditReadView>;
+  /** 그 단계의 URL 을 사람 소유 새 탭으로 연다. */
+  openAuditUrl(url: string): Promise<number | null>;
+
   // 구독 — 반환값을 호출하면 해제된다.
   onStateChanged(listener: (state: BrowserState) => void): () => void;
   onShellChanged(listener: (state: ShellState) => void): () => void;
@@ -123,4 +149,7 @@ export interface HelmApi {
   onFocusFindBar(listener: () => void): () => void;
   onAiStateChanged(listener: (state: AiState) => void): () => void;
   onPromptRequested(listener: (prompt: PendingPrompt) => void): () => void;
+  onApprovalRequested(listener: (request: ApprovalRequestView) => void): () => void;
+  onApprovalQueueChanged(listener: (queue: ApprovalRequestView[]) => void): () => void;
+  onUndoChanged(listener: (stack: UndoStackView) => void): () => void;
 }

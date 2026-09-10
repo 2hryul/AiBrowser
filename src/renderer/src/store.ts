@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ShellState } from '../../shared/api';
 import type {
   AiState,
+  ApprovalRequestView,
   Bookmark,
   BrowserState,
   DownloadItem,
@@ -40,6 +41,10 @@ interface ShellStore {
   ai: AiState;
   /** 사람 답을 기다리는 물음. 한 번에 하나만 띄운다. */
   prompts: PendingPrompt[];
+  /** 승인 대기 큐. 메인이 진실이고 셸은 그대로 그린다. */
+  approvals: ApprovalRequestView[];
+  /** 관리자 잠금이면 승인 범위를 once 로 제한한다. */
+  policyLocked: boolean;
 
   /** 주소창 입력값. 타이핑 중이면 실제 URL 대신 이 값을 보여준다. */
   omniboxDraft: string | null;
@@ -54,6 +59,10 @@ interface ShellStore {
   setAiState: (ai: AiState) => void;
   addPrompt: (prompt: PendingPrompt) => void;
   removePrompt: (id: string) => void;
+  setApprovals: (queue: ApprovalRequestView[]) => void;
+  addApproval: (request: ApprovalRequestView) => void;
+  removeApproval: (id: string) => void;
+  setPolicyLocked: (locked: boolean) => void;
   setDownloads: (downloads: DownloadItem[]) => void;
   setDraft: (value: string | null) => void;
   setError: (value: boolean) => void;
@@ -72,6 +81,8 @@ export const useShellStore = create<ShellStore>((set, get) => ({
   downloads: [],
   ai: IDLE_AI,
   prompts: [],
+  approvals: [],
+  policyLocked: false,
 
   omniboxDraft: null,
   omniboxError: false,
@@ -96,6 +107,16 @@ export const useShellStore = create<ShellStore>((set, get) => ({
         : { prompts: [...state.prompts, prompt] }
     ),
   removePrompt: (id) => set((state) => ({ prompts: state.prompts.filter((item) => item.id !== id) })),
+  setApprovals: (queue) => set({ approvals: queue }),
+  addApproval: (request) =>
+    set((state) =>
+      state.approvals.some((item) => item.id === request.id)
+        ? state
+        : { approvals: [...state.approvals, request] }
+    ),
+  removeApproval: (id) =>
+    set((state) => ({ approvals: state.approvals.filter((item) => item.id !== id) })),
+  setPolicyLocked: (locked) => set({ policyLocked: locked }),
   setDownloads: (downloads) => set({ downloads }),
 
   setDraft: (value) =>

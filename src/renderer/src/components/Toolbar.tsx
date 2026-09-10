@@ -112,6 +112,39 @@ export function Toolbar({ tab, shell, bookmarks }: Props): JSX.Element {
 
       <button
         type="button"
+        aria-label="되돌리기 목록"
+        aria-pressed={shell.panel === 'undo'}
+        title="되돌리기 목록 (Ctrl+Shift+U)"
+        className={iconButton}
+        onClick={() => togglePanel('undo')}
+      >
+        ↩
+      </button>
+
+      <button
+        type="button"
+        aria-label="단계 로그"
+        aria-pressed={shell.panel === 'audit'}
+        title="단계 로그 (Ctrl+Shift+G)"
+        className={iconButton}
+        onClick={() => togglePanel('audit')}
+      >
+        🎞️
+      </button>
+
+      <button
+        type="button"
+        aria-label="정책"
+        aria-pressed={shell.panel === 'policy'}
+        title="정책 (Ctrl+,)"
+        className={iconButton}
+        onClick={() => togglePanel('policy')}
+      >
+        🔐
+      </button>
+
+      <button
+        type="button"
         aria-label={`테마: ${THEME_LABEL[shell.theme]}`}
         title={`테마: ${THEME_LABEL[shell.theme]} (Ctrl+Shift+D)`}
         className={iconButton}

@@ -316,6 +316,9 @@ function createWindow(helmSession: Session): void {
     openHistory: () => setPanel(shell.panel === 'history' ? 'none' : 'history'),
     openDownloads: () => setPanel(shell.panel === 'downloads' ? 'none' : 'downloads'),
     openBookmarkManager: () => setPanel(shell.panel === 'bookmarks' ? 'none' : 'bookmarks'),
+    openUndoPanel: () => setPanel(shell.panel === 'undo' ? 'none' : 'undo'),
+    openStepLog: () => setPanel(shell.panel === 'audit' ? 'none' : 'audit'),
+    openPolicy: () => setPanel(shell.panel === 'policy' ? 'none' : 'policy'),
     bookmarkCurrentPage: () => void toggleBookmarkForActiveTab(),
     toggleReader: () => void toggleReaderForActiveTab(),
     openFind: () => {
@@ -653,7 +656,16 @@ function registerIpc(): void {
   ipcMain.handle(IPC.shellGet, () => shell);
 
   ipcMain.handle(IPC.panelOpen, (_e, panel: unknown) => {
-    const allowed: ShellPanel[] = ['none', 'history', 'downloads', 'bookmarks', 'reader'];
+    const allowed: ShellPanel[] = [
+      'none',
+      'history',
+      'downloads',
+      'bookmarks',
+      'reader',
+      'undo',
+      'audit',
+      'policy'
+    ];
     if (typeof panel !== 'string' || !allowed.includes(panel as ShellPanel)) return false;
     setPanel(panel as ShellPanel);
     return true;

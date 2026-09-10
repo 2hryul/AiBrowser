@@ -126,7 +126,15 @@ export interface FindState {
 export type ThemeSource = 'system' | 'light' | 'dark';
 
 /** 셸이 띄우는 내부 화면. 웹 콘텐츠가 아니라 브라우저 크롬의 일부다(ADR 0005). */
-export type ShellPanel = 'none' | 'history' | 'downloads' | 'bookmarks' | 'reader';
+export type ShellPanel =
+  | 'none'
+  | 'history'
+  | 'downloads'
+  | 'bookmarks'
+  | 'reader'
+  | 'undo'
+  | 'audit'
+  | 'policy';
 
 /** 확장 로드 결과 — docs/extensions.md 기록용 */
 export interface ExtensionLoadResult {
@@ -200,4 +208,94 @@ export interface PendingPrompt {
   /** request_access 의 대상 호스트 */
   host?: string;
   createdAt: number;
+}
+
+// ── M3 제어 계층 ──
+
+export type ApprovalActionKind =
+  | 'write_click'
+  | 'form_submit'
+  | 'download'
+  | 'upload'
+  | 'javascript'
+  | 'site_first_visit'
+  | 'tool';
+
+export type GrantScope = 'once' | 'thread' | 'domain';
+
+/** 승인 다이얼로그가 그리는 요청. */
+export interface ApprovalRequestView {
+  id: string;
+  subject: string;
+  tool: string;
+  action: ApprovalActionKind;
+  host: string;
+  reason: string;
+  targetText: string | null;
+  irreversible: boolean;
+  runId: string;
+  createdAt: number;
+}
+
+export interface UndoRecordView {
+  id: string;
+  runId: string;
+  tool: string;
+  describe: string;
+  createdAt: number;
+  undone: boolean;
+  sealed: boolean;
+  sealedReason: string | null;
+}
+
+export interface PolicyGrantView {
+  subject: string;
+  host: string;
+  scope: GrantScope;
+  threadId?: string;
+  grantedAt: number;
+}
+
+export interface PolicyView {
+  locked: boolean;
+  sites: { default: 'allow' | 'ask' | 'deny'; hosts: Record<string, 'allow' | 'ask' | 'deny'> };
+  deny: { hosts: string[]; tools: string[] };
+  tools: Record<string, 'allow' | 'ask' | 'deny'>;
+  grants: PolicyGrantView[];
+  retentionDays: number;
+}
+
+/** 감사 로그 한 줄 — StepLogPlayer 가 그린다. */
+export interface AuditEntryView {
+  ts: number;
+  source: string;
+  runId: string;
+  tabId: number | null;
+  url: string | null;
+  tool: string;
+  args: unknown;
+  targetText: string | null;
+  result: unknown;
+  durationMs: number;
+  screenshotPath: string | null;
+  policyDecision: 'allow' | 'deny' | 'ask';
+  grantScope: string | null;
+  review: boolean;
+  error: string | null;
+}
+
+/** 되돌리기 시도 결과 — 실패 사유를 사람이 읽을 문장으로 함께 돌려준다. */
+export type UndoOutcomeView =
+  | { ok: true; record: UndoRecordView }
+  | { ok: false; reason: 'empty' | 'sealed' | 'not_found' | 'failed'; message: string };
+
+export interface UndoStackView {
+  runId: string;
+  records: UndoRecordView[];
+}
+
+export interface AuditReadView {
+  runId: string;
+  file: string | null;
+  entries: AuditEntryView[];
 }

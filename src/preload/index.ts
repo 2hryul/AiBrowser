@@ -86,6 +86,24 @@ const api: HelmApi = {
   setOverlayEnabled: (enabled) => ipcRenderer.invoke(IPC.aiOverlayToggle, enabled),
   answerPrompt: (id, answer) => ipcRenderer.invoke(IPC.promptAnswer, id, answer),
 
+  // 승인 3단계
+  getApprovalQueue: () => ipcRenderer.invoke(IPC.approvalQueueGet),
+  answerApproval: (id, scope) => ipcRenderer.invoke(IPC.approvalAnswer, id, scope),
+
+  // 정책 설정
+  getPolicy: () => ipcRenderer.invoke(IPC.policyGet),
+  revokeGrant: (index) => ipcRenderer.invoke(IPC.policyRevokeGrant, index),
+  setPolicyDeny: (hosts, tools) => ipcRenderer.invoke(IPC.policySetDeny, hosts, tools),
+  setPolicySite: (host, decision) => ipcRenderer.invoke(IPC.policySetSite, host, decision),
+
+  // 되돌리기
+  getUndo: () => ipcRenderer.invoke(IPC.undoGet),
+  applyUndo: (runId, id) => ipcRenderer.invoke(IPC.undoApply, runId, id),
+
+  // 단계 로그 재생
+  readAudit: () => ipcRenderer.invoke(IPC.auditRead),
+  openAuditUrl: (url) => ipcRenderer.invoke(IPC.auditOpenUrl, url),
+
   // 구독
   onStateChanged: (listener) => subscribe(IPC.stateChanged, listener),
   onShellChanged: (listener) => subscribe(IPC.shellChanged, listener),
@@ -102,7 +120,10 @@ const api: HelmApi = {
     return () => ipcRenderer.removeListener(IPC.focusFindBar, wrapped);
   },
   onAiStateChanged: (listener) => subscribe(IPC.aiStateChanged, listener),
-  onPromptRequested: (listener) => subscribe(IPC.promptRequested, listener)
+  onPromptRequested: (listener) => subscribe(IPC.promptRequested, listener),
+  onApprovalRequested: (listener) => subscribe(IPC.approvalRequested, listener),
+  onApprovalQueueChanged: (listener) => subscribe(IPC.approvalQueueChanged, listener),
+  onUndoChanged: (listener) => subscribe(IPC.undoChanged, listener)
 };
 
 contextBridge.exposeInMainWorld('helm', api);
