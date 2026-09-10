@@ -5,6 +5,17 @@
 - 결정 기록: `docs\adr\0001-신규-스캐폴딩.md`
 - 환경: Windows 11 (x64) · Node v24.11.0 · npm 11.6.1 · Electron 44.3.0 · vite 7.3.6
 
+## 0. 재검증 기록
+
+| 회차 | 시각 | 결과 |
+|---|---|---|
+| 1차 | 2026-09-10 08:25 (KST) | 5개 조건 PASS |
+| 2차 | 2026-09-10 10:41 (KST) | 5개 조건 PASS — `out\`·`.smoke-profile\`·`test-results\`·`*.tsbuildinfo` 및 스크린샷 전부 삭제 후 재실행 |
+
+2차 실행에서 `smoke-summary.json` 의 `ranAt` 을 뺀 **모든 실측값이 1차와 동일**하고, `shell.png`·`home-tab.png` 는 바이트 단위로 같다(git 이 변경으로 잡지 않음). 레이아웃·세션 검증이 타이밍에 흔들리지 않는다는 뜻이다.
+
+2차 시점의 목표 문서는 `goals/GOAL-M0.md` 로 옮겨졌고, 루트 `GOAL.md` 와 바이트 단위로 동일하다(diff 0). M0 요구사항은 변경되지 않았다.
+
 ## 1. 성공 조건 판정
 
 깨끗한 상태(`out\`, `.smoke-profile\`, `artifacts\m0\*` 삭제)에서 순서대로 실행한 결과다.
