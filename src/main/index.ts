@@ -1148,6 +1148,14 @@ void app.whenReady().then(async () => {
         const { portalTestHooks } = await import('./browser/PortalProtocol');
         portalTestHooks.resetSubmitted();
       },
+      portalTeams: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        return portalTestHooks.teams();
+      },
+      approvalDocs: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        return portalTestHooks.approvalDocs();
+      },
       piiSamples: async () => {
         const { portalTestHooks } = await import('./browser/PortalProtocol');
         return portalTestHooks.piiSamples();

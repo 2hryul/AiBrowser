@@ -1,0 +1,52 @@
+[
+  {
+    "team": "정보관리팀",
+    "members": 4,
+    "rows": [
+      "김민준\t주임\t10*****\t010-****-1000\tus****@example.co.kr",
+      "이서연\t대리\t10*****\t010-****-1013\tus****@example.co.kr",
+      "박지호\t과장\t10*****\t010-****-1026\tus****@example.co.kr",
+      "최수빈\t차장\t10*****\t010-****-1039\tus****@example.co.kr"
+    ]
+  },
+  {
+    "team": "인사팀",
+    "members": 4,
+    "rows": [
+      "정예은\t주임\t10*****\t010-****-1052\tus****@example.co.kr",
+      "김도윤\t대리\t10*****\t010-****-1065\tus****@example.co.kr",
+      "이하은\t과장\t10*****\t010-****-1078\tus****@example.co.kr",
+      "박지훈\t차장\t10*****\t010-****-1091\tus****@example.co.kr"
+    ]
+  },
+  {
+    "team": "총무팀",
+    "members": 4,
+    "rows": [
+      "최민준\t주임\t10*****\t010-****-1104\tus****@example.co.kr",
+      "정서연\t대리\t10*****\t010-****-1117\tus****@example.co.kr",
+      "김지호\t과장\t10*****\t010-****-1130\tus****@example.co.kr",
+      "이수빈\t차장\t10*****\t010-****-1143\tus****@example.co.kr"
+    ]
+  },
+  {
+    "team": "재무팀",
+    "members": 4,
+    "rows": [
+      "박예은\t주임\t10*****\t010-****-1156\tus****@example.co.kr",
+      "최도윤\t대리\t10*****\t010-****-1169\tus****@example.co.kr",
+      "정하은\t과장\t10*****\t010-****-1182\tus****@example.co.kr",
+      "김지훈\t차장\t10*****\t010-****-1195\tus****@example.co.kr"
+    ]
+  },
+  {
+    "team": "정보보호팀",
+    "members": 4,
+    "rows": [
+      "이민준\t주임\t10*****\t010-****-1208\tus****@example.co.kr",
+      "박서연\t대리\t10*****\t010-****-1221\tus****@example.co.kr",
+      "최지호\t과장\t10*****\t010-****-1234\tus****@example.co.kr",
+      "정수빈\t차장\t10*****\t010-****-1247\tus****@example.co.kr"
+    ]
+  }
+]

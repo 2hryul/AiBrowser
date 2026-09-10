@@ -1,0 +1,90 @@
+{
+  "scenarioD_denied": {
+    "blocked": true,
+    "by": "user",
+    "reason": "portal-d 에 처음 접근합니다",
+    "collected": 0
+  },
+  "scenarioD": {
+    "teams": 5,
+    "membersPerTeam": 4,
+    "approvals": 1,
+    "approvalScope": "once",
+    "piiInOutput": 0,
+    "piiInLog": 0,
+    "piiInSamples": 60,
+    "reviewFlagged": 5,
+    "auditFile": "D:\\SOURCE\\aiBrowser\\.m3-profile\\audit\\run-mtv41tzk.jsonl",
+    "output": "scenario-d-table.json",
+    "shots": [
+      {
+        "team": "정보관리팀",
+        "file": "scenario-d-0.png",
+        "maskedRegions": 12,
+        "minCoverage": 1
+      },
+      {
+        "team": "인사팀",
+        "file": "scenario-d-1.png",
+        "maskedRegions": 12,
+        "minCoverage": 1
+      },
+      {
+        "team": "총무팀",
+        "file": "scenario-d-2.png",
+        "maskedRegions": 12,
+        "minCoverage": 1
+      },
+      {
+        "team": "재무팀",
+        "file": "scenario-d-3.png",
+        "maskedRegions": 12,
+        "minCoverage": 1
+      },
+      {
+        "team": "정보보호팀",
+        "file": "scenario-d-4.png",
+        "maskedRegions": 12,
+        "minCoverage": 1
+      }
+    ]
+  },
+  "scenarioF": {
+    "priorAmount": "1,540,000",
+    "billedAmount": "1,541,000",
+    "draftTitleApplied": true,
+    "frames": 2,
+    "attempts": [
+      {
+        "blocked": true,
+        "by": "user",
+        "dialogAction": "write_click"
+      },
+      {
+        "blocked": true,
+        "by": "user",
+        "dialogAction": "write_click"
+      },
+      {
+        "blocked": true,
+        "by": "user",
+        "dialogAction": "write_click"
+      }
+    ],
+    "submittedDocs": 0,
+    "statusAfter": "임시저장",
+    "blockedEntries": 4,
+    "shots": [
+      "scenario-f-draft.png",
+      "scenario-f-approval.png"
+    ]
+  },
+  "stepLogPlayer": {
+    "steps": 61,
+    "stepsWithScreenshot": 12,
+    "inspectedStep": 6,
+    "openedTabUrl": "app://portal-d/",
+    "openedTabOwner": "human",
+    "shot": "step-log-player.png"
+  }
+}

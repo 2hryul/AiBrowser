@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-09-10T05:19:00.427Z",
+  "ranAt": "2026-09-10T05:56:15.131Z",
   "m0": {
     "contentBounds": {
       "x": 240,
@@ -90,8 +90,8 @@
     "shell.png": {
       "width": 1583,
       "height": 948,
-      "bytes": 21877,
-      "luminance": 30.1
+      "bytes": 23806,
+      "luminance": 30.2
     },
     "home-tab.png": {
       "width": 1283,
@@ -105,7 +105,7 @@
     "cookie": "helm_smoke_session",
     "valueAfterRestart": "m1-persisted",
     "bookmarksAfterRestart": 1,
-    "historyAfterRestart": 13
+    "historyAfterRestart": 12
   },
   "profileImport": {
     "discovered": [

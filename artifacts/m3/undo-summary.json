@@ -1,0 +1,29 @@
+{
+  "typeUndo": {
+    "values": [
+      "1월",
+      "1월정산",
+      "1월정산재요청"
+    ],
+    "afterTwoUndos": "1월",
+    "stack": 3
+  },
+  "tabsCloseUndo": {
+    "closedTabId": 3,
+    "restoredUrl": "app://portal-a/list?page=1",
+    "restoredOwner": "ai"
+  },
+  "downloadUndo": {
+    "fileName": "rule-1.pdf",
+    "savePath": "D:\\SOURCE\\aiBrowser\\.undo-downloads\\rule-1.pdf",
+    "fileGone": true,
+    "recordGone": true
+  },
+  "sealed": {
+    "undoableBeforeSeal": 5,
+    "sealedCount": 2,
+    "sealedReason": "상신 실행 후에는 되돌릴 수 없습니다",
+    "humanRefusal": "sealed",
+    "aiRefusal": "sealed"
+  }
+}

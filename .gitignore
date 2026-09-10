@@ -23,3 +23,10 @@ goals.zip
 .tools-profile/
 .tools-downloads/
 .diag-downloads/
+
+# M3 테스트 프로필
+.m3-profile/
+.m3-downloads/
+.undo-profile/
+.undo-downloads/
+test-results/

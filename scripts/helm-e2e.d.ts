@@ -228,6 +228,8 @@ interface HelmE2EHook {
   submittedDocs: () => Promise<string[]>;
   resetSubmitted: () => Promise<void>;
   piiSamples: () => Promise<{ employeeNo: string; phone: string; email: string }[]>;
+  portalTeams: () => Promise<string[]>;
+  approvalDocs: () => Promise<{ id: string; title: string; amount: number }[]>;
 }
 
 declare global {

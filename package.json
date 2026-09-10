@@ -17,7 +17,9 @@
     "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs",
     "test:tools": "electron-vite build && playwright test scripts/tool-tests.ts",
     "test:mcp": "electron-vite build && playwright test scripts/mcp-scenarios.ts",
-    "test:policy": "vitest run tests/policy.test.ts"
+    "test:policy": "vitest run tests/policy.test.ts",
+    "test:scenarios": "electron-vite build && playwright test scripts/mcp-scenarios-m3.ts",
+    "test:undo": "electron-vite build && playwright test scripts/undo-tests.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
