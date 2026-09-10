@@ -30,3 +30,9 @@ goals.zip
 .undo-profile/
 .undo-downloads/
 test-results/
+
+# M4a 테스트 프로필
+.e-profile/
+.e-downloads/
+.p-profile/
+.p-downloads/
