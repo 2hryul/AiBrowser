@@ -699,7 +699,11 @@ void app.whenReady().then(async () => {
   // 권한 요청은 M1에서 전부 거부한다(최소 권한 원칙). 사이트별 허용 UI는 M3 정책 화면에서.
   helmSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
 
-  installAppProtocol([session.defaultSession, helmSession]);
+  // 모의 포털(app://portal-a|b|c)은 검증용이다. 패키징된 앱에는 붙이지 않는다.
+  installAppProtocol(
+    [session.defaultSession, helmSession],
+    app.isPackaged ? {} : { portals: helmSession }
+  );
 
   database = openDatabase(app.getPath('userData'));
   history = new History(database);

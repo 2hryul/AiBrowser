@@ -14,7 +14,7 @@
     "lint": "eslint . --max-warnings=0",
     "smoke": "electron-vite build && playwright test",
     "test:unit": "vitest run",
-    "fixtures": "node scripts/make-reader-fixtures.mjs"
+    "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -38,6 +38,7 @@
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.12.0",
+    "iconv-lite": "^0.7.3",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2",

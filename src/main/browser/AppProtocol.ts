@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, protocol, type Session } from 'electron';
+import { PORTAL_HOSTS, handlePortalRequest } from './PortalProtocol';
 
 /**
  * 번들 페이지를 `app://` 로 서비스한다.
@@ -75,7 +76,31 @@ function resolveRequestPath(requestUrl: string): string | null {
   return target;
 }
 
+/**
+ * 모의 포털은 동적 응답(세션 검사·페이지네이션·JSON API)이 필요해 파일 서빙과 경로가 다르다.
+ * 등록 여부는 installAppProtocol 호출부가 정한다 — 패키징된 앱에는 붙이지 않는다.
+ */
+let portalSession: Session | null = null;
+
 async function handleAppRequest(request: GlobalRequest): Promise<GlobalResponse> {
+  if (portalSession) {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(request.url);
+    } catch {
+      parsed = null;
+    }
+
+    if (parsed && (PORTAL_HOSTS as readonly string[]).includes(parsed.hostname)) {
+      const response = handlePortalRequest(
+        { fixturesDir: path.join(app.getAppPath(), 'fixtures') },
+        parsed.hostname,
+        parsed
+      );
+      if (response) return response;
+    }
+  }
+
   const filePath = resolveRequestPath(request.url);
   if (!filePath) {
     return new Response('Not Found', { status: 404, headers: { 'content-type': 'text/plain' } });
@@ -97,7 +122,10 @@ async function handleAppRequest(request: GlobalRequest): Promise<GlobalResponse>
  * protocol.handle 은 세션 단위이므로 셸이 쓰는 기본 세션과 탭이 쓰는
  * persist:helm 파티션 모두에 등록해야 한다.
  */
-export function installAppProtocol(sessions: Session[]): void {
+export function installAppProtocol(sessions: Session[], options: { portals?: Session } = {}): void {
+  // 포털은 쿠키 저장소가 필요하므로 어느 세션 기준으로 판정할지 명시적으로 받는다.
+  if (options.portals) portalSession = options.portals;
+
   for (const s of sessions) {
     if (s.protocol.isProtocolHandled(APP_SCHEME)) continue;
     s.protocol.handle(APP_SCHEME, handleAppRequest);
