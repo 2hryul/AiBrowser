@@ -187,7 +187,15 @@ export class HelmMcpServer {
       }
     });
 
-    const threadId = `mcp-${randomUUID().slice(0, 8)}`;
+    // 클라이언트가 스레드를 지정할 수 있다. 앱이 재시작된 뒤 같은 작업을 이어가려면
+    // 같은 스레드에 붙어야 하고(체크포인트·메시지가 거기 매달려 있다), 연결마다 새 id 를
+    // 발급하면 그게 불가능하다. 형식은 좁게 제한한다 — 파일·DB 키로 쓰이는 값이다.
+    const requested = req.headers['x-helm-thread'];
+    const threadId =
+      typeof requested === 'string' && /^[\w.-]{1,64}$/.test(requested)
+        ? requested
+        : `mcp-${randomUUID().slice(0, 8)}`;
+
     const server = this.buildServer(threadId);
 
     // SDK 의 Transport 는 optional 콜백을 `() => void` 로 선언해 우리 쪽

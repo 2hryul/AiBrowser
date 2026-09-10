@@ -369,6 +369,7 @@ interface HelmE2EHook {
   resetSubmitted: () => Promise<void>;
   piiSamples: () => Promise<{ employeeNo: string; phone: string; email: string }[]>;
   portalTeams: () => Promise<string[]>;
+  wikiDefects: () => Promise<string[]>;
 
   // M4a
   getSessionStore: () => HelmSessionStoreHook | null;

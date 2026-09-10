@@ -1,0 +1,23 @@
+{
+  "scenarioE": {
+    "total": 400,
+    "visitedFirstRun": 200,
+    "killedAt": 200,
+    "statusAfterRestart": "paused",
+    "resumeCheckpoint": 239,
+    "resumeIndex": 200,
+    "restoredDefects": 25,
+    "restoredTabs": 1,
+    "restoredTabUrl": "app://portal-e/page?id=200",
+    "aiTabsDuringRun": 1,
+    "visitedTotal": 400,
+    "duplicates": 0,
+    "broken": 30,
+    "legacy": 20,
+    "defects": 50,
+    "aiTabsAtEnd": 1,
+    "checkpoints": 50,
+    "threadMessages": 902,
+    "checkpointsBeforeKill": 50
+  }
+}

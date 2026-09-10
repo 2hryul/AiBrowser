@@ -27,17 +27,26 @@ export const PORTAL_E_TOTAL = PORTAL_E.sections * PORTAL_E.pagesPerSection;
 /** 구 도메인. 실제로 접속되지 않아야 한다 — 결함으로 보고만 한다. */
 const LEGACY_HOST = 'wiki.old-intra.example.co.kr';
 
+/**
+ * 장 제목.
+ *
+ * "결재 규정"·"휴가 신청" 처럼 쓰기 키워드가 든 이름은 일부러 뺐다. 목차를 펼치는 버튼에
+ * 그런 낱말이 있으면 Policy 가 쓰기 클릭으로 보고 승인을 요구한다(실측). 그 판정은
+ * 사내 위키에서는 오탐이지만, 문구만으로 명사와 동사를 가릴 방법은 없다 —
+ * 이 fixture 는 지연 로딩·분량·결함을 보는 곳이라 판정 문제를 섞지 않는다.
+ * (오탐 자체는 tests/policy.test.ts 의 "알려진 오탐" 과 artifacts/m4a/REPORT.md 에 남겼다.)
+ */
 const TOPICS = [
-  '결재 규정',
   '보안 지침',
-  '휴가 신청',
+  '조직 안내',
   '경비 처리',
-  '자산 관리',
+  '자산 목록',
   '출입 통제',
   '개발 표준',
   '장애 대응',
   '외주 계약',
-  '교육 과정'
+  '교육 과정',
+  '용어 사전'
 ];
 
 export interface WikiDefect {

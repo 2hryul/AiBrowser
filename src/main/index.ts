@@ -340,9 +340,15 @@ async function collectAiTabs(): Promise<
     let scrollY = 0;
     if (wc) {
       try {
-        scrollY = (await wc.executeJavaScript('window.scrollY')) as number;
+        // 로딩 중인 페이지에서는 executeJavaScript 가 응답하지 않을 수 있다.
+        // 체크포인트가 그 때문에 멈추면 안 되므로 시간 제한을 둔다(400페이지 순회에서 실측).
+        scrollY = await Promise.race([
+          wc.executeJavaScript('window.scrollY') as Promise<number>,
+          new Promise<number>((resolve) => {
+            setTimeout(() => resolve(0), 300).unref?.();
+          })
+        ]);
       } catch {
-        // 페이지가 아직 로드 중이면 스크롤을 못 읽는다. 0 으로 두고 진행한다.
         scrollY = 0;
       }
     }
@@ -1715,6 +1721,10 @@ void app.whenReady().then(async () => {
       resetSubmitted: async () => {
         const { portalTestHooks } = await import('./browser/PortalProtocol');
         portalTestHooks.resetSubmitted();
+      },
+      wikiDefects: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        return portalTestHooks.wiki.defects().map((defect) => `${defect.pageId}:${defect.kind}`);
       },
       portalTeams: async () => {
         const { portalTestHooks } = await import('./browser/PortalProtocol');

@@ -451,3 +451,43 @@ describe('PII 마스킹', () => {
     expect(findPii('아무것도 없음')).toHaveLength(0);
   });
 });
+
+describe('쓰기 키워드 — 알려진 오탐', () => {
+  /**
+   * 문구만으로는 명사와 동사를 가릴 수 없다.
+   *
+   * "결재 규정" 은 결재를 **설명하는 문서**의 제목이고, 그 링크를 누르는 것은 읽기다.
+   * 그런데 판정은 낱말이 들어 있는지만 보므로 쓰기 클릭으로 본다 — 안전한 쪽으로 틀리지만
+   * (막고 물어본다) 사내 위키에서는 불필요한 승인이 된다.
+   *
+   * 이 테스트는 그 사실을 **고정**한다. 나중에 규칙을 정교하게 만들면 여기가 먼저 깨져서
+   * "의도한 변경" 임을 확인하게 된다. 모의 포털 E 의 장 제목이 이 낱말들을 피하는 이유도 이것이다
+   * (src/main/browser/portals/wiki.ts, artifacts/m4a/REPORT.md).
+   */
+  it('명사로 쓰인 낱말도 쓰기로 본다 — 현재 한계', () => {
+    for (const label of ['결재 규정', '휴가 신청 안내', '자산 등록 대장', '승인 절차 문서']) {
+      expect(isWriteKeyword(label), label).toBe(true);
+    }
+  });
+
+  it('포털 E 의 장 제목 10종은 오탐에 걸리지 않는다', () => {
+    const topics = [
+      '보안 지침',
+      '조직 안내',
+      '경비 처리',
+      '자산 목록',
+      '출입 통제',
+      '개발 표준',
+      '장애 대응',
+      '외주 계약',
+      '교육 과정',
+      '용어 사전'
+    ];
+
+    for (const topic of topics) {
+      expect(isWriteKeyword(topic), topic).toBe(false);
+      // 실제 문서 제목은 "<주제> v1.2" 꼴이다 — 접미사가 붙어도 걸리지 않아야 한다.
+      expect(isWriteKeyword(`${topic} v3.7`), topic).toBe(false);
+    }
+  });
+});

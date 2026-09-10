@@ -1,0 +1,14 @@
+{
+  "locked": false,
+  "sites": {
+    "default": "allow",
+    "hosts": {}
+  },
+  "deny": {
+    "hosts": [],
+    "tools": []
+  },
+  "tools": {},
+  "grants": [],
+  "retentionDays": 30
+}
