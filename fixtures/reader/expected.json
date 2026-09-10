@@ -1,0 +1,22 @@
+{
+  "cases": [
+    "semantic-article",
+    "main-nested-div",
+    "plain-div-content",
+    "legacy-table",
+    "iframe-sidebar"
+  ],
+  "mustContain": [
+    "본문표식알파",
+    "본문표식베타",
+    "본문표식감마",
+    "본문표식델타"
+  ],
+  "mustNotContain": [
+    "잡동사니광고",
+    "잡동사니댓글",
+    "잡동사니스크립트",
+    "잡동사니푸터",
+    "잡동사니사이드"
+  ]
+}

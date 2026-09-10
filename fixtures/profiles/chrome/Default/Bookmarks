@@ -1,0 +1,42 @@
+{
+  "roots": {
+    "bookmark_bar": {
+      "type": "folder",
+      "name": "북마크바",
+      "children": [
+        {
+          "type": "url",
+          "name": "사내 포털",
+          "url": "https://portal.example.co.kr/"
+        },
+        {
+          "type": "folder",
+          "name": "업무",
+          "children": [
+            {
+              "type": "url",
+              "name": "전자결재",
+              "url": "https://approval.example.co.kr/"
+            },
+            {
+              "type": "url",
+              "name": "ITSM",
+              "url": "https://itsm.example.co.kr/tickets"
+            }
+          ]
+        }
+      ]
+    },
+    "other": {
+      "type": "folder",
+      "name": "기타 북마크",
+      "children": [
+        {
+          "type": "url",
+          "name": "규정 포털",
+          "url": "https://rules.example.co.kr/"
+        }
+      ]
+    }
+  }
+}

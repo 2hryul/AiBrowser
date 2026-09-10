@@ -1,0 +1,16 @@
+{
+  "chrome": {
+    "bookmarks": 4,
+    "visits": 5,
+    "distinctUrls": 4,
+    "autofill": 3,
+    "decoys": 5
+  },
+  "edge": {
+    "bookmarks": 2,
+    "visits": 2,
+    "distinctUrls": 2,
+    "autofill": 1,
+    "decoys": 5
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "defaultEngine": "corp",
+  "engines": [
+    {
+      "id": "corp",
+      "name": "사내 검색",
+      "urlTemplate": "https://search.example.co.kr/search?q={q}",
+      "keyword": "s"
+    }
+  ]
+}

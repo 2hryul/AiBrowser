@@ -1,0 +1,7 @@
+[
+  {
+    "name": "사내 보안 확장",
+    "path": "C:\corp\extensions\security-unpacked",
+    "required": true
+  }
+]

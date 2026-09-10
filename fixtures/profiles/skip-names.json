@@ -1,0 +1,10 @@
+{
+  "comment": "가져오기가 절대 열어서는 안 되는 파일 이름. fixture 생성기가 이 이름으로 미끼 파일을 만들고, 단위 테스트가 파일 접근 로그에서 이 이름이 없음을 확인한다. 코드가 아니라 데이터로 두어 no-credential-files lint 규칙에 예외를 만들지 않는다.",
+  "names": [
+    "Cookies",
+    "Login Data",
+    "Login Data For Account",
+    "Local State",
+    "Affiliation Database"
+  ]
+}

@@ -2,7 +2,10 @@
   "include": [
     "electron.vite.config.ts",
     "eslint.config.mjs",
+    "eslint-rules/**/*",
     "playwright.config.ts",
+    "vitest.config.ts",
+    "tests/**/*",
     "scripts/**/*",
     "src/main/**/*",
     "src/preload/**/*",
