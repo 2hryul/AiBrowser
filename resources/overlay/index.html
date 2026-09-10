@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>Helm 코브라우징 오버레이</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      /* 오버레이는 웹 페이지 위에 얹히는 별도 View 다. 페이지 DOM 에는 아무것도 넣지 않는다. */
+      #layer { position: fixed; inset: 0; pointer-events: none; }
+      .box {
+        position: absolute;
+        border: 2px solid #ff3b30;
+        background: rgba(255, 59, 48, 0.18);
+        border-radius: 3px;
+        box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.35);
+      }
+      .cursor {
+        position: absolute;
+        width: 18px; height: 18px;
+        margin: -9px 0 0 -9px;
+        border-radius: 50%;
+        background: rgba(255, 59, 48, 0.9);
+        box-shadow: 0 0 0 6px rgba(255, 59, 48, 0.25);
+        transition: left 200ms ease-out, top 200ms ease-out;
+      }
+      .badge {
+        position: absolute; top: 8px; left: 8px;
+        background: #ff3b30; color: #fff;
+        font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+        padding: 5px 9px; border-radius: 999px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="layer"></div>
+    <script>
+      // 메인이 executeJavaScript 로 호출한다. 여기는 우리 페이지라 preload 가 필요 없다.
+      window.helmOverlay = {
+        render(state) {
+          const layer = document.getElementById('layer');
+          layer.replaceChildren();
+
+          if (state.badge) {
+            const badge = document.createElement('div');
+            badge.className = 'badge';
+            badge.id = 'ai-badge';
+            badge.textContent = state.badge;
+            layer.appendChild(badge);
+          }
+
+          for (const box of state.boxes || []) {
+            const el = document.createElement('div');
+            el.className = 'box';
+            el.dataset.role = box.role || '';
+            el.style.left = box.x + 'px';
+            el.style.top = box.y + 'px';
+            el.style.width = box.width + 'px';
+            el.style.height = box.height + 'px';
+            layer.appendChild(el);
+          }
+
+          if (state.cursor) {
+            const cursor = document.createElement('div');
+            cursor.className = 'cursor';
+            cursor.id = 'ai-cursor';
+            cursor.style.left = state.cursor.x + 'px';
+            cursor.style.top = state.cursor.y + 'px';
+            layer.appendChild(cursor);
+          }
+          return true;
+        },
+        clear() {
+          document.getElementById('layer').replaceChildren();
+          return true;
+        }
+      };
+    </script>
+  </body>
+</html>

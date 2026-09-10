@@ -13,6 +13,8 @@ export const APP_SCHEME = 'app';
 /** app://<host> 로 노출할 번들 디렉터리. 화이트리스트 방식(허용 목록)만 사용한다. */
 const ROOTS: Record<string, string[]> = {
   home: ['resources', 'home'],
+  // 코브라우징 오버레이. 페이지가 아니라 브라우저 크롬의 일부다.
+  overlay: ['resources', 'overlay'],
   // 테스트·검증용 페이지. 외부 네트워크 없이 읽기 모드·다운로드를 검증하기 위한 것이다.
   fixtures: ['fixtures']
 };

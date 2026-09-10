@@ -171,3 +171,31 @@ export const LAYOUT = {
 
 /** 유휴 탭 언로드 임계 시간 — 30분 */
 export const IDLE_UNLOAD_MS = 30 * 60 * 1000;
+
+/** AI 작업 상태 — 셸의 PauseResumeBar 가 이것을 그린다. */
+export type AiThreadStatus = 'idle' | 'running' | 'paused' | 'done';
+
+export interface AiState {
+  threadId: string;
+  status: AiThreadStatus;
+  /** 일시정지 사유. status === 'paused' 일 때만 채워진다. */
+  pauseReason: string | null;
+  pausedTabId: number | null;
+  /** AI 가 소유한 탭 id 목록 — 탭바 배지에 쓴다. */
+  aiTabIds: number[];
+  overlayEnabled: boolean;
+  /** MCP 서버 접속 주소. 사람이 Claude Code 에 붙일 때 쓴다. */
+  mcpEndpoint: string | null;
+}
+
+/** ask_user / request_access 가 사람에게 띄우는 물음. */
+export interface PendingPrompt {
+  id: string;
+  kind: 'ask_user' | 'request_access';
+  question: string;
+  /** 선택지. 비어 있으면 자유 입력 */
+  options: string[];
+  /** request_access 의 대상 호스트 */
+  host?: string;
+  createdAt: number;
+}

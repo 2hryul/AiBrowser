@@ -17,7 +17,9 @@
     "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@mozilla/readability": "^0.6.0",
+    "ajv": "^8.20.0",
     "better-sqlite3": "^13.0.3",
     "linkedom": "^0.18.13",
     "react": "^18.3.1",

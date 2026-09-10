@@ -15,8 +15,21 @@ import { findInPage, printPage, savePageAsPdf, stopFind, toggleDevTools } from '
 import { readTab } from './browser/ReaderService';
 import { cycleThemeSource, getThemeSource, isDarkMode, setThemeSource } from './browser/Theme';
 import { discoverProfiles, importProfile } from './browser/ProfileImport';
+import { Overlay } from './cobrowse/Overlay';
+import { Handoff } from './control/Handoff';
+import { startConsoleCapture } from './tools/read_console_messages';
+import { registerAllTools } from './tools/register';
+import type { ToolContext } from './tools/index';
+import { HelmMcpServer, type McpEndpointInfo } from './mcp/Server';
 import { IPC } from './ipc/channels';
-import { LAYOUT, type BrowserState, type ShellPanel, type ThemeSource } from '../shared/types';
+import {
+  LAYOUT,
+  type AiState,
+  type BrowserState,
+  type PendingPrompt,
+  type ShellPanel,
+  type ThemeSource
+} from '../shared/types';
 import type { ShellState } from '../shared/api';
 
 /** Named Session: M1은 기본 세션 하나만 쓴다. 파티션 이름은 재시작 후 세션 유지의 키다. */
@@ -51,6 +64,24 @@ let bookmarks: Bookmarks | null = null;
 let autofill: Autofill | null = null;
 let downloads: Downloads | null = null;
 let searchConfig: SearchConfig = { defaultEngine: null, engines: [] };
+let overlay: Overlay | null = null;
+let handoff: Handoff | null = null;
+let mcpServer: HelmMcpServer | null = null;
+let mcpEndpoint: McpEndpointInfo | null = null;
+
+/** 사람에게 물어 둔 것들. ask_user / request_access 가 여기서 답을 기다린다. */
+const pendingPrompts = new Map<string, { prompt: PendingPrompt; resolve: (answer: string) => void }>();
+
+/** 마지막으로 셸에 보낸 AI 상태. 셸이 늦게 붙어도 현재 상태를 받을 수 있게 보관한다. */
+let aiState: AiState = {
+  threadId: '',
+  status: 'idle',
+  pauseReason: null,
+  pausedTabId: null,
+  aiTabIds: [],
+  overlayEnabled: true,
+  mcpEndpoint: null
+};
 
 /** 셸이 그리는 크롬 상태. 탭 상태와 갱신 주기가 달라 따로 관리한다. */
 const shell: ShellState = {
@@ -102,6 +133,40 @@ function pushBookmarks(): void {
   sendToShell(IPC.bookmarksChanged, list);
 }
 
+function pushAiState(): void {
+  sendToShell(IPC.aiStateChanged, aiState);
+}
+
+/** Handoff·오버레이 상태가 바뀔 때마다 셸이 볼 값을 새로 만든다. */
+function refreshAiState(partial: Partial<AiState> = {}): void {
+  const aiTabIds = tabManager
+    ? tabManager.getState().tabs.filter((tab) => tab.owner === 'ai').map((tab) => tab.id)
+    : [];
+
+  aiState = {
+    ...aiState,
+    aiTabIds,
+    overlayEnabled: overlay?.isEnabled() ?? true,
+    mcpEndpoint: mcpEndpoint?.url ?? null,
+    ...partial
+  };
+  pushAiState();
+}
+
+/**
+ * 사람에게 묻고 답을 기다린다. ask_user / request_access 가 공유한다.
+ * 답이 오기 전에는 도구 호출이 그대로 대기한다 — 헤드리스로 도는 경우를 위한 큐잉은 M3.
+ */
+function askHuman(prompt: Omit<PendingPrompt, 'id' | 'createdAt'>): Promise<string> {
+  const id = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const full: PendingPrompt = { ...prompt, id, createdAt: Date.now() };
+
+  return new Promise<string>((resolve) => {
+    pendingPrompts.set(id, { prompt: full, resolve });
+    sendToShell(IPC.promptRequested, full);
+  });
+}
+
 /**
  * 웹 콘텐츠 영역을 둘러싼 크롬 두께를 계산해 TabManager 에 알린다.
  * 세로 탭바면 왼쪽을, 가로 탭바면 위쪽을 쓰고, 북마크바·찾기바가 있으면 위쪽이 더 두꺼워진다.
@@ -120,6 +185,8 @@ function applyInsets(): void {
   };
 
   tabManager.setInsets(insets);
+  // 오버레이는 웹 콘텐츠와 정확히 같은 사각형을 덮어야 좌표가 맞는다.
+  overlay?.setBounds(tabManager.expectedContentBounds());
 }
 
 /** 패널을 열거나 닫는다. 패널이 열리면 탭 뷰를 숨겨 셸이 그린 화면이 보이게 한다(ADR 0005). */
@@ -160,12 +227,28 @@ function createWindow(helmSession: Session): void {
   shellView = shellWebView;
   window.contentView.addChildView(shellWebView);
 
+  overlay = new Overlay(window);
+  handoff = new Handoff({
+    onChange: (state) => {
+      refreshAiState({
+        threadId: state.threadId,
+        status: state.status,
+        pauseReason: state.pause?.reason ?? null,
+        pausedTabId: state.pause?.tabId ?? null
+      });
+    }
+  });
+
   const manager = new TabManager({
     window,
     session: helmSession,
     sessionName: SESSION_NAME,
     onStateChange: pushBrowserState,
-    onTabWebContents: (wc) => attachShortcuts(wc, shortcutHandlers),
+    onTabWebContents: (wc) => {
+      attachShortcuts(wc, shortcutHandlers);
+      // AI 가 나중에 콘솔을 물어볼 수 있으므로 탭이 생길 때부터 모아 둔다.
+      startConsoleCapture(wc);
+    },
     onVisit: (url, title) => history?.add(url, title),
     onTitleUpdated: (url, title) => history?.updateTitle(url, title),
     ...(Number.isFinite(idleUnloadOverride) && idleUnloadOverride > 0
@@ -292,6 +375,10 @@ function createWindow(helmSession: Session): void {
   window.on('closed', () => {
     mainWindow = null;
     shellView = null;
+    overlay?.dispose();
+    overlay = null;
+    handoff?.dispose();
+    handoff = null;
     tabManager?.dispose();
     tabManager = null;
   });
@@ -309,6 +396,8 @@ function createWindow(helmSession: Session): void {
       manager.createTab();
       pushBookmarks();
       pushShellState();
+      applyInsets();
+      refreshAiState();
     })
     .catch((error: unknown) => {
       console.error('[createWindow] 셸 로드 실패 - 진입점:', entry, error);
@@ -358,6 +447,58 @@ async function savePdfForActiveTab(): Promise<void> {
   const wc = tabManager?.getActiveWebContents();
   if (!wc) return;
   await savePageAsPdf(wc, downloadDir(), wc.getTitle() || 'page');
+}
+
+/**
+ * 도구 호출 컨텍스트. MCP 연결마다 threadId 가 다르고, 나머지 자원은 공유한다.
+ * 여기가 ToolSurface 와 브라우저 본체가 만나는 유일한 지점이다.
+ */
+function createToolContext(threadId: string): ToolContext {
+  if (!tabManager || !overlay || !handoff || !downloads) {
+    throw new Error('[tools] 브라우저가 아직 준비되지 않았습니다');
+  }
+
+  return {
+    tabs: tabManager,
+    session: session.fromPartition(SESSION_PARTITION),
+    downloads,
+    overlay,
+    handoff,
+    threadId,
+    downloadDir: downloadDir(),
+    requestAccess: async (host, reason) => {
+      const answer = await askHuman({
+        kind: 'request_access',
+        question: `AI 가 ${host} 에 접근하려 합니다.
+
+이유: ${reason}`,
+        options: ['허용', '거부'],
+        host
+      });
+      return answer === '허용';
+    },
+    askUser: async (question, options) => ({ answer: await askHuman({ kind: 'ask_user', question, options }) })
+  };
+}
+
+/** MCP 서버 기동. 실패해도 브라우저는 정상 동작해야 한다. */
+async function startMcpServer(): Promise<void> {
+  if (mcpServer) return;
+
+  registerAllTools();
+  const server = new HelmMcpServer({
+    ...(process.env['HELM_MCP_PORT'] ? { port: Number(process.env['HELM_MCP_PORT']) } : {}),
+    ...(process.env['HELM_MCP_TOKEN'] ? { token: process.env['HELM_MCP_TOKEN'] } : {}),
+    createContext: createToolContext
+  });
+
+  try {
+    mcpEndpoint = await server.start();
+    mcpServer = server;
+    refreshAiState();
+  } catch (error) {
+    console.error('[mcp] 서버 기동 실패 - 포트가 이미 쓰이고 있을 수 있습니다', error);
+  }
 }
 
 function registerIpc(): void {
@@ -652,6 +793,39 @@ function registerIpc(): void {
     )
   );
 
+  // ── AI 코브라우징 / Handoff ──
+  ipcMain.handle(IPC.aiStateGet, () => aiState);
+
+  ipcMain.handle(IPC.aiResume, () => {
+    if (!handoff || aiState.threadId === '') return false;
+    handoff.resume(aiState.threadId);
+    return true;
+  });
+
+  ipcMain.handle(IPC.aiTakeOver, () => {
+    if (!handoff || aiState.threadId === '') return false;
+    handoff.takeOver(aiState.threadId);
+    return true;
+  });
+
+  ipcMain.handle(IPC.aiOverlayToggle, (_e, enabled: unknown) => {
+    if (typeof enabled !== 'boolean' || !overlay) return overlay?.isEnabled() ?? true;
+    overlay.setEnabled(enabled);
+    refreshAiState();
+    return enabled;
+  });
+
+  // ── 사람에게 묻기 ──
+  ipcMain.handle(IPC.promptAnswer, (_e, id: unknown, answer: unknown) => {
+    if (typeof id !== 'string') return false;
+    const pending = pendingPrompts.get(id);
+    if (!pending) return false;
+
+    pendingPrompts.delete(id);
+    pending.resolve(typeof answer === 'string' ? answer : '');
+    return true;
+  });
+
   ipcMain.handle(IPC.importRun, (_e, dir: unknown) => {
     if (typeof dir !== 'string' || !history || !bookmarks || !autofill) return null;
 
@@ -685,6 +859,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  void mcpServer?.stop();
+  overlay?.dispose();
+  handoff?.dispose();
   tabManager?.dispose();
   try {
     database?.close();
@@ -734,6 +911,11 @@ void app.whenReady().then(async () => {
     pushShellState();
   }
 
+  // MCP 서버는 AI 표면이 필요할 때만 켠다. 기본은 켜고, 껐으면 설정에서 다시 켠다(M3).
+  if (process.env['HELM_MCP_DISABLED'] !== '1') {
+    await startMcpServer();
+  }
+
   if (isE2E) {
     // 스모크 테스트가 메인 프로세스 상태를 직접 확인할 수 있게 하는 훅.
     // HELM_E2E=1 일 때만 존재하고, 웹 콘텐츠에는 노출되지 않는다.
@@ -757,7 +939,29 @@ void app.whenReady().then(async () => {
       },
       downloadDir: downloadDir(),
       sessionPartition: SESSION_PARTITION,
-      layout: LAYOUT
+      layout: LAYOUT,
+      // ── M2 도구 표면 ──
+      getOverlay: () => overlay,
+      getHandoff: () => handoff,
+      getAiState: () => aiState,
+      getMcpEndpoint: () => mcpEndpoint,
+      createToolContext,
+      callTool: async (threadId: string, name: string, args: unknown) => {
+        const { callTool: dispatch } = await import('./tools/index');
+        return dispatch(createToolContext(threadId), name, args);
+      },
+      toolNames: async () => {
+        const { toolNames } = await import('./tools/register');
+        return toolNames();
+      },
+      pendingPrompts: () => [...pendingPrompts.values()].map((entry) => entry.prompt),
+      answerPrompt: (id: string, answer: string) => {
+        const pending = pendingPrompts.get(id);
+        if (!pending) return false;
+        pendingPrompts.delete(id);
+        pending.resolve(answer);
+        return true;
+      }
     };
   }
 });

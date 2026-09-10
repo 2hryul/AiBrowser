@@ -73,6 +73,17 @@ export const IPC = {
   importDiscover: 'helm:import:discover',
   importRun: 'helm:import:run',
 
+  // ── AI 코브라우징 / Handoff ─────────────────────────
+  aiStateGet: 'helm:ai:state:get',
+  aiStateChanged: 'helm:ai:state:changed',
+  aiResume: 'helm:ai:resume',
+  aiTakeOver: 'helm:ai:take-over',
+  aiOverlayToggle: 'helm:ai:overlay-toggle',
+
+  // ── 사람에게 묻기 (ask_user / request_access) ───────
+  promptRequested: 'helm:prompt:requested',
+  promptAnswer: 'helm:prompt:answer',
+
   // ── 메인 → 렌더러 요청 ──────────────────────────────
   focusOmnibox: 'helm:shell:focus-omnibox',
   focusFindBar: 'helm:shell:focus-findbar'
