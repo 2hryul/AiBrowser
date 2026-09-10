@@ -6,7 +6,7 @@
  * 미끼 이름은 fixtures/profiles/skip-names.json 에서 읽는다 — 이 스크립트에 이름을 적지 않아
  * no-credential-files lint 규칙이 저장소 전체에 예외 없이 적용된다.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 
@@ -172,6 +172,24 @@ function countBookmarks(tree) {
   };
   for (const root of Object.values(tree.roots ?? {})) walk(root);
   return n;
+}
+
+/*
+ * 앱을 통한 종단 검증용 배치.
+ * discoverProfiles 는 %LOCALAPPDATA%\Google\Chrome\User Data\<Profile> 구조를 찾으므로,
+ * 같은 모양의 트리를 만들어 두고 HELM_PROFILE_ROOT 로 가리킨다.
+ */
+const LOCALAPPDATA = path.join(ROOT, 'localappdata');
+const LAYOUT = {
+  chrome: ['Google', 'Chrome', 'User Data'],
+  edge: ['Microsoft', 'Edge', 'User Data']
+};
+
+rmSync(LOCALAPPDATA, { recursive: true, force: true });
+for (const browser of Object.keys(PROFILES)) {
+  const dest = path.join(LOCALAPPDATA, ...LAYOUT[browser], 'Default');
+  mkdirSync(dest, { recursive: true });
+  cpSync(path.join(ROOT, browser, 'Default'), dest, { recursive: true });
 }
 
 writeFileSync(path.join(ROOT, 'expected.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf-8');

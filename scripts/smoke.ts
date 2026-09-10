@@ -83,7 +83,7 @@ declare global {
 // 공통 헬퍼
 // ─────────────────────────────────────────────────────────────
 
-function launchApp(): Promise<ElectronApplication> {
+function launchApp(overrides: Record<string, string> = {}): Promise<ElectronApplication> {
   return electron.launch({
     // 프로젝트 루트를 넘겨 package.json 의 main 을 타게 한다(app.getAppPath() === ROOT).
     args: [ROOT],
@@ -94,7 +94,8 @@ function launchApp(): Promise<ElectronApplication> {
       HELM_USER_DATA_DIR: PROFILE,
       HELM_DOWNLOAD_DIR: DOWNLOAD_DIR,
       // 30분을 기다릴 수 없으므로 유휴 언로드 임계 시간을 줄인다.
-      HELM_IDLE_UNLOAD_MS: '400'
+      HELM_IDLE_UNLOAD_MS: '400',
+      ...overrides
     }
   });
 }
@@ -956,5 +957,108 @@ test('[M0] 재시작 후에도 persist:helm 세션과 북마크가 유지된다'
     };
   } finally {
     await second.close();
+  }
+});
+
+test('[M1] 프로필 가져오기 — 앱을 통해 fixture 프로필을 가져온다', async () => {
+  // 다른 테스트의 북마크·기록과 섞이지 않도록 별도 프로필로 띄운다.
+  const importProfileDir = path.join(ROOT, '.smoke-profile-import');
+  fs.rmSync(importProfileDir, { recursive: true, force: true });
+
+  const third = await launchApp({
+    HELM_USER_DATA_DIR: importProfileDir,
+    // discoverProfiles 가 볼 %LOCALAPPDATA% 를 fixture 로 바꿔 끼운다.
+    HELM_PROFILE_ROOT: path.join(ROOT, 'fixtures', 'profiles', 'localappdata')
+  });
+
+  try {
+    await waitForWindow(third);
+
+    const discovered = await third.evaluate(async () => {
+      const shell = globalThis.__helm?.getShell();
+      if (!shell) throw new Error('[smoke] 셸 뷰 없음');
+      return (await shell.webContents.executeJavaScript(
+        'window.helm.discoverProfiles().then((p) => JSON.stringify(p))'
+      )) as string;
+    });
+
+    const profiles = JSON.parse(discovered) as { browser: string; name: string; dir: string }[];
+    expect(profiles.map((p) => `${p.browser}/${p.name}`).sort()).toEqual([
+      'chrome/Default',
+      'edge/Default'
+    ]);
+
+    const chrome = profiles.find((p) => p.browser === 'chrome');
+    expect(chrome).toBeDefined();
+
+    const resultRaw = await third.evaluate(async (_e, dir) => {
+      const shell = globalThis.__helm?.getShell();
+      if (!shell) throw new Error('[smoke] 셸 뷰 없음');
+      return (await shell.webContents.executeJavaScript(
+        `window.helm.runImport(${JSON.stringify(dir)}).then((r) => JSON.stringify(r))`
+      )) as string;
+    }, chrome?.dir ?? '');
+
+    const result = JSON.parse(resultRaw) as {
+      sourceProfile: string;
+      bookmarks: number;
+      history: number;
+      autofill: number;
+      skippedCredentialFiles: string[];
+      errors: string[];
+    };
+
+    const expectedCounts = JSON.parse(
+      fs.readFileSync(path.join(ROOT, 'fixtures', 'profiles', 'expected.json'), 'utf-8')
+    ) as Record<string, { bookmarks: number; visits: number; autofill: number; decoys: number }>;
+
+    expect(result.errors).toEqual([]);
+    expect(result.bookmarks).toBe(expectedCounts['chrome']?.bookmarks);
+    expect(result.history).toBe(expectedCounts['chrome']?.visits);
+    expect(result.autofill).toBe(expectedCounts['chrome']?.autofill);
+    expect(result.skippedCredentialFiles.length).toBe(expectedCounts['chrome']?.decoys);
+
+    // 실제로 저장되었는지 저장소에서 다시 센다.
+    const stored = await third.evaluate(() => ({
+      bookmarks: globalThis.__helm?.getBookmarks()?.count() ?? -1,
+      history: globalThis.__helm?.getHistory()?.count() ?? -1
+    }));
+    // 시작 탭이 남긴 방문 1건이 더해진다.
+    expect(stored.bookmarks).toBe(expectedCounts['chrome']?.bookmarks);
+    expect(stored.history).toBeGreaterThanOrEqual(expectedCounts['chrome']?.visits ?? 0);
+
+    // 가져오기 UI 가 결과를 보여주는지도 확인한다.
+    await third.evaluate(() => globalThis.__helm?.setPanel('bookmarks'));
+    await expect
+      .poll(
+        async () => {
+          const shell = await third.evaluate(async () => {
+            const view = globalThis.__helm?.getShell();
+            if (!view) throw new Error('[smoke] 셸 뷰 없음');
+            return (await view.webContents.executeJavaScript(
+              `JSON.stringify({
+                 panel: !!document.querySelector('[data-import-panel]'),
+                 profiles: document.querySelectorAll('[data-import-profile]').length
+               })`
+            )) as string;
+          });
+          return shell;
+        },
+        { message: '가져오기 UI 가 프로필 목록을 보여주기를 대기' }
+      )
+      .toBe(JSON.stringify({ panel: true, profiles: 2 }));
+
+    summary['profileImport'] = {
+      discovered: profiles.map((p) => `${p.browser}/${p.name}`),
+      imported: {
+        bookmarks: result.bookmarks,
+        history: result.history,
+        autofill: result.autofill
+      },
+      skippedFiles: result.skippedCredentialFiles
+    };
+  } finally {
+    await third.close();
+    fs.rmSync(importProfileDir, { recursive: true, force: true });
   }
 });

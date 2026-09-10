@@ -9,3 +9,4 @@ playwright-report/
 *.tsbuildinfo
 goals.zip
 .smoke-downloads/
+.smoke-profile-import/
