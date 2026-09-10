@@ -105,6 +105,47 @@ export const IPC = {
   auditRead: 'helm:audit:read',
   auditOpenUrl: 'helm:audit:open-url',
 
+  // ── M4a 지속성 ──────────────────────────────────────
+  threadsGet: 'helm:threads:get',
+  threadsChanged: 'helm:threads:changed',
+  threadCreate: 'helm:threads:create',
+  threadSelect: 'helm:threads:select',
+  threadMessages: 'helm:threads:messages',
+  threadSay: 'helm:threads:say',
+  threadResume: 'helm:threads:resume',
+  threadStop: 'helm:threads:stop',
+
+  inboxGet: 'helm:inbox:get',
+  inboxChanged: 'helm:inbox:changed',
+  inboxMarkRead: 'helm:inbox:mark-read',
+  inboxMarkAllRead: 'helm:inbox:mark-all-read',
+  inboxRemove: 'helm:inbox:remove',
+
+  checkpointsGet: 'helm:checkpoints:get',
+  checkpointsChanged: 'helm:checkpoints:changed',
+  checkpointSave: 'helm:checkpoints:save',
+  checkpointRestore: 'helm:checkpoints:restore',
+
+  notesGet: 'helm:notes:get',
+  notesScopes: 'helm:notes:scopes',
+  noteAppend: 'helm:notes:append',
+  noteRestore: 'helm:notes:restore',
+
+  sessionsGet: 'helm:sessions:get',
+  sessionsChanged: 'helm:sessions:changed',
+  sessionUse: 'helm:sessions:use',
+
+  bookmarkMetaGet: 'helm:bookmark-meta:get',
+  bookmarkMetaSet: 'helm:bookmark-meta:set',
+
+  pageHistoryGet: 'helm:page-history:get',
+  pageDiffGet: 'helm:page-history:diff',
+  pageHistoryUrls: 'helm:page-history:urls',
+
+  resultsGet: 'helm:results:get',
+  resultsChanged: 'helm:results:changed',
+  resultsExport: 'helm:results:export',
+
   // ── 메인 → 렌더러 요청 ──────────────────────────────
   focusOmnibox: 'helm:shell:focus-omnibox',
   focusFindBar: 'helm:shell:focus-findbar'

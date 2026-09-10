@@ -187,6 +187,145 @@ interface HelmExtensionLoadResult {
   unsupportedPermissions: string[];
 }
 
+// ── M4a 지속성 ──
+
+interface HelmThread {
+  id: string;
+  title: string;
+  status: string;
+  sessionName: string;
+  stepCount: number;
+  stepLimit: number;
+  closedReason: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface HelmThreadMessage {
+  id: number;
+  threadId: string;
+  seq: number;
+  role: string;
+  text: string;
+  tool: string | null;
+  args: unknown;
+  result: unknown;
+  createdAt: number;
+}
+
+interface HelmCheckpoint {
+  id: number;
+  threadId: string;
+  name: string;
+  note: string;
+  trigger: string;
+  messageIndex: number;
+  payload: {
+    tabs: { url: string; sessionName: string; scrollY: number; tabId?: number; title?: string }[];
+    results: unknown[];
+    noteVersions: { scope: string; version: number }[];
+    cursor: Record<string, unknown>;
+  };
+  createdAt: number;
+}
+
+interface HelmInboxItem {
+  id: number;
+  kind: string;
+  threadId: string | null;
+  title: string;
+  summary: string;
+  evidencePath: string | null;
+  createdAt: number;
+  readAt: number | null;
+}
+
+interface HelmSessionInfo {
+  name: string;
+  partition: string;
+  loginMethod: string | null;
+  loggedInAt: number | null;
+  createdAt: number;
+  lastUsedAt: number;
+}
+
+interface HelmSessionStoreHook {
+  list: () => HelmSessionInfo[];
+  get: (name: string) => HelmSessionInfo | null;
+  ensure: (name: string) => HelmSessionInfo | null;
+  use: (name: string) => HelmSessionInfo | null;
+  currentName: () => string;
+  partitionOf: (name: string) => string;
+  recordLogin: (name: string, method: string, verifiedHost?: string) => HelmSessionInfo | null;
+  meta: (name: string) => { loginMethod: string | null; loggedInAt: number | null } | null;
+}
+
+interface HelmThreadStoreHook {
+  create: (input: { id?: string; title?: string; sessionName?: string; stepLimit?: number }) => HelmThread;
+  get: (id: string) => HelmThread | null;
+  list: (limit?: number) => HelmThread[];
+  setStatus: (id: string, status: string, closedReason?: string) => boolean;
+  append: (
+    threadId: string,
+    input: { role: string; text?: string; tool?: string; args?: unknown; result?: unknown }
+  ) => HelmThreadMessage;
+  messages: (threadId: string, fromSeq?: number) => HelmThreadMessage[];
+  messageCount: (threadId: string) => number;
+  recoverInterrupted: () => number;
+}
+
+interface HelmCheckpointStoreHook {
+  list: (threadId: string, limit?: number) => HelmCheckpoint[];
+  get: (id: number) => HelmCheckpoint | null;
+  latest: (threadId: string) => HelmCheckpoint | null;
+  count: (threadId: string) => number;
+}
+
+interface HelmInboxHook {
+  list: (options?: { unreadOnly?: boolean; threadId?: string; limit?: number }) => HelmInboxItem[];
+  post: (input: { kind: string; title: string; threadId?: string; summary?: string }) => HelmInboxItem;
+  unreadCount: () => number;
+  markRead: (id: number) => boolean;
+  markAllRead: () => number;
+}
+
+interface HelmNoteStoreHook {
+  read: (scope: string) => { scope: string; version: number; text: string } | null;
+  history: (scope: string) => { scope: string; version: number; text: string }[];
+  append: (scope: string, text: string) => { ok: boolean; reason?: string; truncated?: boolean };
+  scopes: () => string[];
+  latestVersion: (scope: string) => number;
+}
+
+interface HelmChangeTrackerHook {
+  snapshot: (
+    url: string,
+    title: string,
+    text: string
+  ) => { snapshot: { id: number; bytes: number; truncated: boolean }; created: boolean };
+  history: (url: string, limit?: number) => { id: number; capturedAt: number; bytes: number }[];
+  count: (url: string) => number;
+  diff: (
+    url: string,
+    fromId?: number,
+    toId?: number
+  ) => { changedWords: number; addedWords: number; removedWords: number; coarse: boolean } | null;
+  trackedUrls: () => { url: string; snapshots: number }[];
+}
+
+interface HelmBookmarkMetaHook {
+  get: (bookmarkId: number) => {
+    intent: string;
+    expectedContent: string;
+    keyFields: string[];
+    agentHints: string;
+  } | null;
+  set: (
+    bookmarkId: number,
+    input: { intent?: string; expectedContent?: string; keyFields?: string[]; agentHints?: string }
+  ) => { ok: boolean; reason?: string };
+}
+
 interface HelmE2EHook {
   // M0/M1
   getTabManager: () => HelmTabManagerHook | null;
@@ -230,6 +369,33 @@ interface HelmE2EHook {
   resetSubmitted: () => Promise<void>;
   piiSamples: () => Promise<{ employeeNo: string; phone: string; email: string }[]>;
   portalTeams: () => Promise<string[]>;
+
+  // M4a
+  getSessionStore: () => HelmSessionStoreHook | null;
+  getThreadStore: () => HelmThreadStoreHook | null;
+  getCheckpointStore: () => HelmCheckpointStoreHook | null;
+  getInbox: () => HelmInboxHook | null;
+  getNoteStore: () => HelmNoteStoreHook | null;
+  getBookmarkMeta: () => HelmBookmarkMetaHook | null;
+  getChangeTracker: () => HelmChangeTrackerHook | null;
+  exportResults: (
+    threadId: string,
+    format: 'csv' | 'md' | 'json'
+  ) => { filePath: string; rows: number; bytes: number } | null;
+  getResults: (threadId: string) => unknown[];
+  saveCheckpointFor: (
+    threadId: string,
+    input: {
+      name: string;
+      trigger: string;
+      note?: string;
+      cursor?: Record<string, unknown>;
+      results?: unknown[];
+    }
+  ) => Promise<HelmCheckpoint>;
+  restoreCheckpointFor: (
+    id: number
+  ) => Promise<{ tabs: { tabId: number; url: string; sessionName: string }[] }>;
   approvalDocs: () => Promise<{ id: string; title: string; amount: number }[]>;
 }
 

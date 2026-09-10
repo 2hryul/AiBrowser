@@ -33,13 +33,20 @@ interface ClosedTab {
   index: number;
   /** 소유권까지 되살린다 — AI 가 닫은 탭을 되돌렸으면 다시 AI 탭이어야 한다. */
   owner: TabOwner;
+  /** 어느 세션에서 열려 있었는지 — 복구 후에도 같은 계정이어야 한다. */
+  sessionName: string;
 }
 
 export interface TabManagerOptions {
   window: BaseWindow;
-  /** 탭 웹 콘텐츠가 쓰는 영구 세션(persist:helm). */
+  /** 기본 세션(persist:helm). 이름 있는 세션은 resolveSession 이 돌려준다. */
   session: Session;
   sessionName: string;
+  /**
+   * 이름 → Electron Session. 탭마다 다른 파티션을 쓸 수 있게 하는 유일한 경로다.
+   * 없으면 모든 탭이 기본 세션을 쓴다(M0~M3 동작).
+   */
+  resolveSession?: (sessionName: string) => Session | null;
   onStateChange: (state: BrowserState) => void;
   /** 새 탭 웹 콘텐츠에 단축키 등 공통 설정을 붙이는 훅. */
   onTabWebContents?: (wc: Electron.WebContents) => void;
@@ -142,7 +149,11 @@ export class TabManager {
     this.emitState();
   }
 
-  createTab(rawUrl?: string, owner: TabOwner = 'human'): number {
+  /**
+   * 새 탭. `sessionName` 을 주면 그 이름의 파티션에서 열린다 —
+   * 같은 창에서 여러 계정을 쓰는 경로다(Named Session).
+   */
+  createTab(rawUrl?: string, owner: TabOwner = 'human', sessionName?: string): number {
     const id = this.nextId++;
     const target = rawUrl ? normalizeAddress(rawUrl) ?? HOME_URL : HOME_URL;
 
@@ -150,7 +161,7 @@ export class TabManager {
       id,
       view: null,
       owner,
-      sessionName: this.opts.sessionName,
+      sessionName: sessionName ?? this.opts.sessionName,
       pinned: false,
       lastUrl: target,
       lastTitle: '새 탭',
@@ -166,11 +177,24 @@ export class TabManager {
     return id;
   }
 
+  /**
+   * 이름으로 세션을 찾는다. 못 찾으면 기본 세션으로 떨어진다 —
+   * 세션이 없다는 이유로 탭이 열리지 않는 것보다 낫다(이름은 배지로 보인다).
+   */
+  private sessionFor(sessionName: string): Session {
+    if (sessionName === this.opts.sessionName) return this.opts.session;
+    const resolved = this.opts.resolveSession?.(sessionName);
+    if (resolved) return resolved;
+
+    console.warn(`[TabManager] 세션 "${sessionName}" 을(를) 찾지 못해 기본 세션으로 엽니다`);
+    return this.opts.session;
+  }
+
   /** 탭에 실제 WebContentsView 를 붙이고 주어진 주소를 띄운다. 복구에도 같은 경로를 쓴다. */
   private attachView(tab: Tab, url: string): void {
     const view = new WebContentsView({
       webPreferences: {
-        session: this.opts.session,
+        session: this.sessionFor(tab.sessionName),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -279,7 +303,8 @@ export class TabManager {
       title: tab.lastTitle,
       pinned: tab.pinned,
       index,
-      owner: tab.owner
+      owner: tab.owner,
+      sessionName: tab.sessionName
     });
     if (this.closed.length > CLOSED_STACK_LIMIT) this.closed.shift();
 
@@ -311,7 +336,7 @@ export class TabManager {
     const snapshot = this.closed.pop();
     if (!snapshot) return null;
 
-    const id = this.createTab(snapshot.url, snapshot.owner);
+    const id = this.createTab(snapshot.url, snapshot.owner, snapshot.sessionName);
     const restored = this.tabs.find((t) => t.id === id);
     if (restored) {
       restored.pinned = snapshot.pinned;

@@ -8,6 +8,17 @@ import type { Approval } from '../control/Approval';
 import type { Policy, PolicyVerdict } from '../control/Policy';
 import type { UndoManager } from '../persistence/UndoManager';
 import type { AuditLog } from '../audit/AuditLog';
+import type { SessionStore } from '../sessions/SessionStore';
+import type { ThreadStore } from '../persistence/ThreadStore';
+import type {
+  Checkpoint,
+  CheckpointStore,
+  CheckpointTrigger
+} from '../persistence/CheckpointStore';
+import type { Inbox } from '../persistence/Inbox';
+import type { NoteStore } from '../persistence/NoteStore';
+import type { BookmarkMeta } from '../persistence/BookmarkMeta';
+import type { ChangeTracker } from '../persistence/ChangeTracker';
 import { maskDeep } from '../control/Masking';
 import { refLabel } from '../cdp/PageReader';
 
@@ -59,6 +70,30 @@ export interface ToolContext {
    * 감사 로그가 단계별 화면을 갖도록 도구 밖에서 한 번에 처리한다.
    */
   captureStep: (tabId: number | null) => Promise<string | null>;
+
+  // ── M4a 지속성 계층 ──
+  sessions: SessionStore;
+  threads: ThreadStore;
+  checkpoints: CheckpointStore;
+  inbox: Inbox;
+  notes: NoteStore;
+  bookmarkMeta: BookmarkMeta;
+  changes: ChangeTracker;
+  /**
+   * 체크포인트를 만든다. 열린 AI 탭·스크롤 위치를 모으는 일은 메인이 안다(탭 관리자·CDP).
+   * 도구는 "무엇을 남길지" 만 정한다.
+   */
+  saveCheckpoint: (input: {
+    name: string;
+    trigger: CheckpointTrigger;
+    note?: string;
+    cursor?: Record<string, unknown>;
+    results?: unknown[];
+  }) => Promise<Checkpoint>;
+  /** 체크포인트로 되돌린다. 저장된 탭을 다시 열고 스크롤을 맞춘다. */
+  restoreCheckpoint: (
+    id: number
+  ) => Promise<{ tabs: { tabId: number; url: string; sessionName: string }[] }>;
 }
 
 export interface Tool<Args = Record<string, unknown>, Result = unknown> {
@@ -265,11 +300,77 @@ export async function callTool(
     const masked = maskDeep(result, { skipKeys: ['image'] });
 
     audit(ctx, name, args, target, masked.value, started, verdict, grantScope, null, shot, masked.review);
+
+    // 스레드에 도구 호출을 남기고 스텝을 센다. 결과 전문은 감사 로그에 있으므로
+    // 여기는 요약만 담는다 — 페이지 본문을 그대로 넣으면 DB 가 수십 MB 로 불어난다.
+    recordStep(ctx, name, args, masked.value, effect);
+
     return masked.value;
   } catch (error) {
     audit(ctx, name, args, target, null, started, verdict, grantScope, (error as Error).message);
     throw error;
   }
+}
+
+/** 자동 체크포인트 간격(스텝). CheckpointStore 의 상수와 같은 값을 쓴다. */
+const AUTO_CHECKPOINT_STEPS = 10;
+
+/**
+ * 스레드 기록과 자동 체크포인트.
+ *
+ * 자동 저장 트리거는 CLAUDE.md 그대로다: **10스텝마다 · 페이지 전환마다**
+ * (ask_user 직전은 askUser 경로에서 처리한다). 실패해도 도구 결과를 버리지 않는다 —
+ * 기록이 안 됐다고 이미 한 일을 되돌릴 수는 없다.
+ */
+function recordStep(
+  ctx: ToolContext,
+  name: string,
+  args: Record<string, unknown>,
+  result: unknown,
+  effect: SideEffect
+): void {
+  try {
+    ctx.threads.append(ctx.threadId, {
+      role: 'tool',
+      tool: name,
+      args,
+      result: compact(result)
+    });
+
+    const progress = ctx.threads.step(ctx.threadId);
+    const navigated = effect === 'navigate';
+
+    if (navigated || progress.count % AUTO_CHECKPOINT_STEPS === 0) {
+      void ctx.saveCheckpoint({
+        name: navigated ? `${name} 직후` : `${progress.count}스텝`,
+        trigger: navigated ? 'navigate' : 'steps'
+      }).catch((error) => {
+        console.warn('[recordStep] 자동 체크포인트 실패', error);
+      });
+    }
+  } catch (error) {
+    console.warn('[recordStep] 스레드 기록 실패', error);
+  }
+}
+
+/** 스레드 기록용 요약. 긴 문자열·배열을 잘라 DB 를 지키면서 "무엇을 했는지" 는 남긴다. */
+function compact(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') {
+    return value.length > 200 ? `${value.slice(0, 200)}…(${value.length}자)` : value;
+  }
+  if (Array.isArray(value)) {
+    const head = value.slice(0, 5).map((item) => compact(item, depth + 1));
+    return value.length > 5 ? [...head, `…(총 ${value.length}건)`] : head;
+  }
+  if (value !== null && typeof value === 'object' && depth < 3) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      // 이미지 base64 는 요약에서 제외한다.
+      out[key] = key === 'image' ? '(생략)' : compact(item, depth + 1);
+    }
+    return out;
+  }
+  return value;
 }
 
 /**

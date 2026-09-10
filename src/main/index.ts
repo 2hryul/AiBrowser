@@ -1,6 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BaseWindow, WebContentsView, dialog, ipcMain, session, type Session } from 'electron';
+import {
+  app,
+  BaseWindow,
+  WebContentsView,
+  dialog,
+  ipcMain,
+  safeStorage,
+  session,
+  type Session
+} from 'electron';
 import { installAppProtocol, registerAppScheme } from './browser/AppProtocol';
 import { TabManager, type ContentInsets } from './browser/TabManager';
 import { attachShortcuts, type ShortcutHandlers } from './browser/Shortcuts';
@@ -20,6 +29,13 @@ import { Handoff } from './control/Handoff';
 import { Policy, PolicyLoadError } from './control/Policy';
 import { Approval, type ApprovalRequest } from './control/Approval';
 import { UndoManager } from './persistence/UndoManager';
+import { SessionStore, DEFAULT_SESSION } from './sessions/SessionStore';
+import { ThreadStore } from './persistence/ThreadStore';
+import { CheckpointStore, type Checkpoint } from './persistence/CheckpointStore';
+import { Inbox } from './persistence/Inbox';
+import { NoteStore } from './persistence/NoteStore';
+import { BookmarkMeta } from './persistence/BookmarkMeta';
+import { ChangeTracker } from './persistence/ChangeTracker';
 import { AuditLog } from './audit/AuditLog';
 import { startConsoleCapture } from './tools/read_console_messages';
 import { registerAllTools } from './tools/register';
@@ -77,6 +93,13 @@ let policy: Policy | null = null;
 let approval: Approval | null = null;
 let undoManager: UndoManager | null = null;
 let auditLog: AuditLog | null = null;
+let sessionStore: SessionStore | null = null;
+let threadStore: ThreadStore | null = null;
+let checkpointStore: CheckpointStore | null = null;
+let inbox: Inbox | null = null;
+let noteStore: NoteStore | null = null;
+let bookmarkMeta: BookmarkMeta | null = null;
+let changeTracker: ChangeTracker | null = null;
 
 /**
  * 실행 단위. M4 에서 threadId 로 승격된다.
@@ -89,6 +112,19 @@ const pendingPrompts = new Map<string, { prompt: PendingPrompt; resolve: (answer
 
 /** 승인 대기 큐. 헤드리스·MCP 실행에서도 여기 쌓이고 사람이 사이드바에서 처리한다. */
 let approvalQueue: ApprovalRequest[] = [];
+
+/**
+ * 스레드별 최근 결과표. ResultsTable 이 그리고 체크포인트에 함께 저장된다.
+ * DB 에 매 행마다 쓰지 않는 이유: 수집 중에는 초당 여러 번 바뀌고, 남아야 하는 시점은
+ * 체크포인트뿐이다.
+ */
+const lastResults = new Map<string, unknown[]>();
+
+/**
+ * 스레드별 최근 진행 커서. 자동 체크포인트에도 실려야 한다 —
+ * 자동 저장이 커서 없이 덮이면 "가장 최근 체크포인트에서 재개" 가 처음부터 다시 하기가 된다.
+ */
+const lastCursor = new Map<string, Record<string, unknown>>();
 
 /** 마지막으로 셸에 보낸 AI 상태. 셸이 늦게 붙어도 현재 상태를 받을 수 있게 보관한다. */
 let aiState: AiState = {
@@ -153,6 +189,256 @@ function pushBookmarks(): void {
 
 function pushAiState(): void {
   sendToShell(IPC.aiStateChanged, aiState);
+}
+
+/**
+ * 북마크된 주소를 방문하면 본문 스냅샷을 남긴다(ChangeTracker).
+ *
+ * 모든 방문을 남기지 않는 이유: 스냅샷은 "지난번과 비교" 를 위한 것이고, 비교하고 싶은 곳은
+ * 사람이 북마크해 둔 페이지다. 전부 남기면 DB 가 방문 기록의 사본이 된다.
+ */
+async function snapshotIfBookmarked(url: string, title: string): Promise<void> {
+  if (!changeTracker || !bookmarks) return;
+  if (!bookmarks.list().some((bookmark) => bookmark.url === url)) return;
+
+  const id = tabManager?.getState().tabs.find((tab) => tab.url === url)?.id;
+  const wc = id === undefined ? null : tabManager?.getWebContents(id);
+  if (!wc) return;
+
+  try {
+    const payload = await readTab(wc, id ?? 0);
+    const text = payload.article?.textContent ?? '';
+    if (text.trim() === '') return;
+
+    const result = changeTracker.snapshot(url, title, text);
+    if (result.created) {
+      sendToShell(IPC.pageHistoryUrls, changeTracker.trackedUrls());
+    }
+  } catch (error) {
+    console.warn(`[snapshotIfBookmarked] 스냅샷 실패 - url: ${url}`, error);
+  }
+}
+
+/**
+ * 결과표 내보내기 — CSV / Markdown / JSON.
+ *
+ * 사람이 결과를 다른 곳(엑셀·보고서)으로 옮기려면 파일이 필요하다. 다운로드 폴더에 쓰는
+ * 이유는 그 폴더가 이미 사용자의 "가져갈 것들" 자리이고, 도구가 접근할 수 있는 유일한
+ * 쓰기 경로이기 때문이다(upload 제한과 같은 규칙).
+ */
+function exportResults(
+  threadId: string,
+  format: 'csv' | 'md' | 'json'
+): { filePath: string; rows: number; bytes: number } | null {
+  const rows = lastResults.get(threadId) ?? [];
+
+  const columns = [
+    ...new Set(
+      rows.flatMap((row) =>
+        row !== null && typeof row === 'object' ? Object.keys(row as Record<string, unknown>) : []
+      )
+    )
+  ];
+
+  const cell = (row: unknown, column: string): string => {
+    if (row === null || typeof row !== 'object') return '';
+    const value = (row as Record<string, unknown>)[column];
+    if (value === null || value === undefined) return '';
+    return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  };
+
+  const NEWLINE = '\n';
+  const CRLF = '\r\n';
+
+  let body: string;
+
+  if (format === 'json') {
+    body = JSON.stringify(rows, null, 2) + NEWLINE;
+  } else if (format === 'csv') {
+    // 쉼표·인용부호·줄바꿈이 들어간 값은 RFC 4180 대로 감싼다.
+    const escape = (value: string): string =>
+      /["\r\n,]/.test(value) ? '"' + value.replace(/"/g, '""') + '"' : value;
+
+    const lines = [columns.map(escape).join(',')];
+    for (const row of rows) lines.push(columns.map((column) => escape(cell(row, column))).join(','));
+    body = lines.join(CRLF) + CRLF;
+  } else {
+    // 표 문법을 깨는 것은 파이프와 줄바꿈뿐이다.
+    const escape = (value: string): string =>
+      value.replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+
+    const lines = [
+      `| ${columns.map(escape).join(' | ')} |`,
+      `| ${columns.map(() => '---').join(' | ')} |`
+    ];
+    for (const row of rows) {
+      lines.push(`| ${columns.map((column) => escape(cell(row, column))).join(' | ')} |`);
+    }
+    body = lines.join(NEWLINE) + NEWLINE;
+  }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filePath = path.join(downloadDir(), `results-${threadId}-${stamp}.${format}`);
+
+  try {
+    fs.writeFileSync(filePath, body, 'utf-8');
+  } catch (error) {
+    console.error(`[exportResults] 저장 실패 - 경로: ${filePath}`, error);
+    return null;
+  }
+
+  return { filePath, rows: rows.length, bytes: Buffer.byteLength(body, 'utf-8') };
+}
+
+/** 받은편지함이 바뀌면 셸의 배지·목록이 따라간다. */
+function pushInbox(): void {
+  if (!inbox) return;
+  sendToShell(IPC.inboxChanged, { unread: inbox.unreadCount(), items: inbox.list({ limit: 100 }) });
+}
+
+function pushThreads(): void {
+  if (!threadStore) return;
+  sendToShell(IPC.threadsChanged, threadStore.list(50));
+}
+
+/**
+ * 이 threadId 의 스레드 행을 보장한다.
+ *
+ * MCP 클라이언트는 연결마다 threadId 를 들고 오는데, 그 자체로는 DB 에 아무것도 없다.
+ * 스레드가 없으면 체크포인트·메시지를 매달 곳이 없으므로 첫 도구 호출에서 만든다.
+ */
+function ensureThread(threadId: string, title = ''): void {
+  if (!threadStore) return;
+  if (threadStore.get(threadId)) return;
+
+  threadStore.create({
+    id: threadId,
+    title: title || threadId,
+    sessionName: sessionStore?.currentName() ?? DEFAULT_SESSION
+  });
+  pushThreads();
+}
+
+/** AI 소유 탭의 현재 상태(주소·세션·스크롤)를 모은다. 체크포인트의 핵심 내용이다. */
+async function collectAiTabs(): Promise<
+  { url: string; sessionName: string; scrollY: number; tabId: number; title: string }[]
+> {
+  if (!tabManager) return [];
+
+  const collected: {
+    url: string;
+    sessionName: string;
+    scrollY: number;
+    tabId: number;
+    title: string;
+  }[] = [];
+
+  for (const tab of tabManager.getState().tabs) {
+    if (tab.owner !== 'ai') continue;
+
+    const wc = tabManager.getWebContents(tab.id);
+    let scrollY = 0;
+    if (wc) {
+      try {
+        scrollY = (await wc.executeJavaScript('window.scrollY')) as number;
+      } catch {
+        // 페이지가 아직 로드 중이면 스크롤을 못 읽는다. 0 으로 두고 진행한다.
+        scrollY = 0;
+      }
+    }
+
+    collected.push({
+      url: tab.url,
+      sessionName: tab.sessionName,
+      scrollY: typeof scrollY === 'number' ? scrollY : 0,
+      tabId: tab.id,
+      title: tab.title
+    });
+  }
+
+  return collected;
+}
+
+/** 체크포인트 저장. 자동 트리거와 `checkpoint_save` 도구가 같은 경로를 쓴다. */
+async function saveCheckpointFor(
+  threadId: string,
+  input: {
+    name: string;
+    trigger: Checkpoint['trigger'];
+    note?: string;
+    cursor?: Record<string, unknown>;
+    results?: unknown[];
+  }
+): Promise<Checkpoint> {
+  if (!checkpointStore || !threadStore) {
+    throw new Error('[saveCheckpoint] 저장소가 준비되지 않았습니다');
+  }
+
+  ensureThread(threadId);
+
+  const saved = checkpointStore.save({
+    threadId,
+    name: input.name,
+    trigger: input.trigger,
+    ...(input.note === undefined ? {} : { note: input.note }),
+    messageIndex: threadStore.messageCount(threadId),
+    payload: {
+      tabs: await collectAiTabs(),
+      results: input.results ?? lastResults.get(threadId) ?? [],
+      noteVersions: (noteStore?.scopes() ?? []).map((scope) => ({
+        scope,
+        version: noteStore?.latestVersion(scope) ?? 0
+      })),
+      cursor: input.cursor ?? lastCursor.get(threadId) ?? {}
+    }
+  });
+
+  if (input.results) lastResults.set(threadId, input.results);
+  if (input.cursor) lastCursor.set(threadId, input.cursor);
+  sendToShell(IPC.checkpointsChanged, { threadId, checkpoints: checkpointStore.list(threadId) });
+  return saved;
+}
+
+/**
+ * 체크포인트로 되돌린다. 저장돼 있던 AI 탭을 다시 열고 스크롤을 맞춘다.
+ * 지금 열려 있는 AI 탭은 닫는다 — 두 상태가 섞이면 "복원됐다" 고 말할 수 없다.
+ */
+async function restoreCheckpointFor(
+  id: number
+): Promise<{ tabs: { tabId: number; url: string; sessionName: string }[] }> {
+  if (!checkpointStore || !tabManager) return { tabs: [] };
+
+  const target = checkpointStore.get(id);
+  if (!target) return { tabs: [] };
+
+  const manager = tabManager;
+
+  for (const tab of manager.getState().tabs) {
+    if (tab.owner === 'ai') manager.closeTab(tab.id);
+  }
+
+  const opened: { tabId: number; url: string; sessionName: string }[] = [];
+
+  for (const saved of target.payload.tabs) {
+    const tabId = manager.createTab(saved.url, 'ai', saved.sessionName);
+    const wc = manager.getWebContents(tabId);
+    if (wc) handoff?.claimTab(tabId, target.threadId, wc);
+    opened.push({ tabId, url: saved.url, sessionName: saved.sessionName });
+
+    if (saved.scrollY > 0) {
+      {
+        // 로드가 끝난 뒤에 스크롤해야 위치가 남는다.
+        wc?.once('did-finish-load', () => {
+          void wc.executeJavaScript(`window.scrollTo(0, ${saved.scrollY})`).catch(() => undefined);
+        });
+      }
+    }
+  }
+
+  lastResults.set(target.threadId, target.payload.results);
+  lastCursor.set(target.threadId, target.payload.cursor);
+  refreshAiState();
+  return { tabs: opened };
 }
 
 /** Handoff·오버레이 상태가 바뀔 때마다 셸이 볼 값을 새로 만든다. */
@@ -279,7 +565,18 @@ function createWindow(helmSession: Session): void {
       if (handoff && wc && owner !== '') handoff.claimTab(childTabId, owner, wc);
       refreshAiState();
     },
-    onVisit: (url, title) => history?.add(url, title),
+    /**
+     * 이름 있는 세션의 파티션을 돌려준다. 한 창에서 여러 계정을 쓰는 유일한 경로다.
+     * 세션 행이 없으면(이름이 규칙에 안 맞으면) null 을 돌려 기본 세션으로 떨어진다.
+     */
+    resolveSession: (name) => {
+      const info = sessionStore?.ensure(name);
+      return info ? session.fromPartition(info.partition) : null;
+    },
+    onVisit: (url, title) => {
+      history?.add(url, title);
+      void snapshotIfBookmarked(url, title);
+    },
     onTitleUpdated: (url, title) => history?.updateTitle(url, title),
     ...(Number.isFinite(idleUnloadOverride) && idleUnloadOverride > 0
       ? { idleUnloadMs: idleUnloadOverride }
@@ -487,11 +784,28 @@ async function savePdfForActiveTab(): Promise<void> {
  * 여기가 ToolSurface 와 브라우저 본체가 만나는 유일한 지점이다.
  */
 function createToolContext(threadId: string, source = 'mcp'): ToolContext {
-  if (!tabManager || !overlay || !handoff || !downloads || !policy || !approval || !undoManager || !auditLog) {
+  if (
+    !tabManager ||
+    !overlay ||
+    !handoff ||
+    !downloads ||
+    !policy ||
+    !approval ||
+    !undoManager ||
+    !auditLog ||
+    !sessionStore ||
+    !threadStore ||
+    !checkpointStore ||
+    !inbox ||
+    !noteStore ||
+    !bookmarkMeta ||
+    !changeTracker
+  ) {
     throw new Error('[tools] 브라우저가 아직 준비되지 않았습니다');
   }
 
   const manager = tabManager;
+  ensureThread(threadId);
 
   return {
     tabs: manager,
@@ -538,7 +852,31 @@ function createToolContext(threadId: string, source = 'mcp'): ToolContext {
       });
       return answer === '허용';
     },
-    askUser: async (question, options) => ({ answer: await askHuman({ kind: 'ask_user', question, options }) })
+    askUser: async (question, options) => {
+      // ask_user 직전은 자동 체크포인트 지점이다(CLAUDE.md) — 사람을 기다리는 사이 앱이
+      // 닫혀도 여기서 이어갈 수 있어야 한다.
+      await saveCheckpointFor(threadId, {
+        name: 'ask_user 직전',
+        trigger: 'ask_user',
+        note: question.slice(0, 200)
+      }).catch((error) => {
+        console.warn('[askUser] 체크포인트 저장 실패', error);
+        return null;
+      });
+
+      return { answer: await askHuman({ kind: 'ask_user', question, options }) };
+    },
+
+    // ── M4a 지속성 계층 ──
+    sessions: sessionStore,
+    threads: threadStore,
+    checkpoints: checkpointStore,
+    inbox,
+    notes: noteStore,
+    bookmarkMeta,
+    changes: changeTracker,
+    saveCheckpoint: (input) => saveCheckpointFor(threadId, input),
+    restoreCheckpoint: (id) => restoreCheckpointFor(id)
   };
 }
 
@@ -951,6 +1289,200 @@ function registerIpc(): void {
     return tabManager.createTab(url);
   });
 
+  // ── M4a 지속성: 스레드 ──
+  ipcMain.handle(IPC.threadsGet, () => threadStore?.list(50) ?? []);
+
+  ipcMain.handle(IPC.threadCreate, (_e, title: unknown) => {
+    if (!threadStore) return null;
+    const thread = threadStore.create({
+      title: typeof title === 'string' && title.trim() !== '' ? title : '새 작업',
+      sessionName: sessionStore?.currentName() ?? DEFAULT_SESSION
+    });
+    pushThreads();
+    return thread;
+  });
+
+  ipcMain.handle(IPC.threadMessages, (_e, threadId: unknown) => {
+    if (typeof threadId !== 'string' || !threadStore) return [];
+    return threadStore.messages(threadId);
+  });
+
+  /** 사이드바에서 사람이 한 마디 보탠다. 앱을 다시 켠 뒤에도 같은 스레드에 이어진다. */
+  ipcMain.handle(IPC.threadSay, (_e, threadId: unknown, text: unknown) => {
+    if (typeof threadId !== 'string' || typeof text !== 'string' || !threadStore) return null;
+    if (text.trim() === '') return null;
+    if (!threadStore.get(threadId)) return null;
+
+    const message = threadStore.append(threadId, { role: 'human', text });
+    pushThreads();
+    return message;
+  });
+
+  /**
+   * "이어서" — 마지막 체크포인트로 돌아가 상태를 running 으로 되돌린다.
+   * 내장 에이전트는 M4b 라, 지금은 재개 지점(커서)을 돌려주는 것까지가 이 핸들러의 일이다.
+   */
+  ipcMain.handle(IPC.threadResume, async (_e, threadId: unknown) => {
+    if (typeof threadId !== 'string' || !threadStore || !checkpointStore) return null;
+
+    const checkpoint = checkpointStore.latest(threadId);
+    const restored = checkpoint ? await restoreCheckpointFor(checkpoint.id) : { tabs: [] };
+
+    threadStore.setStatus(threadId, 'running');
+    threadStore.append(threadId, { role: 'system', text: '사람이 이어서를 눌렀습니다' });
+    pushThreads();
+    handoff?.resume(threadId);
+
+    return {
+      threadId,
+      checkpointId: checkpoint?.id ?? null,
+      cursor: checkpoint?.payload.cursor ?? {},
+      results: checkpoint?.payload.results ?? [],
+      messageIndex: checkpoint?.messageIndex ?? 0,
+      tabs: restored.tabs
+    };
+  });
+
+  ipcMain.handle(IPC.threadStop, (_e, threadId: unknown) => {
+    if (typeof threadId !== 'string' || !threadStore) return false;
+    threadStore.setStatus(threadId, 'done', 'user_takeover');
+    threadStore.append(threadId, { role: 'system', text: '사람이 여기까지를 눌렀습니다' });
+    handoff?.takeOver(threadId);
+    pushThreads();
+    return true;
+  });
+
+  // ── M4a 지속성: 받은편지함 ──
+  ipcMain.handle(IPC.inboxGet, () =>
+    inbox ? { unread: inbox.unreadCount(), items: inbox.list({ limit: 100 }) } : { unread: 0, items: [] }
+  );
+
+  ipcMain.handle(IPC.inboxMarkRead, (_e, id: unknown) =>
+    typeof id === 'number' ? (inbox?.markRead(id) ?? false) : false
+  );
+
+  ipcMain.handle(IPC.inboxMarkAllRead, () => inbox?.markAllRead() ?? 0);
+
+  ipcMain.handle(IPC.inboxRemove, (_e, id: unknown) =>
+    typeof id === 'number' ? (inbox?.remove(id) ?? false) : false
+  );
+
+  // ── M4a 지속성: 체크포인트 ──
+  ipcMain.handle(IPC.checkpointsGet, (_e, threadId: unknown) => {
+    if (typeof threadId !== 'string' || !checkpointStore) return [];
+    return checkpointStore.list(threadId);
+  });
+
+  ipcMain.handle(IPC.checkpointSave, async (_e, threadId: unknown, name: unknown) => {
+    if (typeof threadId !== 'string') return null;
+    return saveCheckpointFor(threadId, {
+      name: typeof name === 'string' && name.trim() !== '' ? name : '수동 저장',
+      trigger: 'manual'
+    });
+  });
+
+  ipcMain.handle(IPC.checkpointRestore, async (_e, id: unknown) => {
+    if (typeof id !== 'number') return null;
+    return restoreCheckpointFor(id);
+  });
+
+  // ── M4a 지속성: 메모 ──
+  ipcMain.handle(IPC.notesScopes, () => noteStore?.scopes() ?? []);
+
+  ipcMain.handle(IPC.notesGet, (_e, scope: unknown) => {
+    if (typeof scope !== 'string' || !noteStore) return null;
+    return { note: noteStore.read(scope), history: noteStore.history(scope) };
+  });
+
+  ipcMain.handle(IPC.noteAppend, (_e, scope: unknown, text: unknown) => {
+    if (typeof scope !== 'string' || typeof text !== 'string' || !noteStore) {
+      return { ok: false, reason: 'scope', message: '잘못된 인자' };
+    }
+    return noteStore.append(scope, text);
+  });
+
+  ipcMain.handle(IPC.noteRestore, (_e, scope: unknown, version: unknown) => {
+    if (typeof scope !== 'string' || typeof version !== 'number' || !noteStore) {
+      return { ok: false, reason: 'scope', message: '잘못된 인자' };
+    }
+    return noteStore.restore(scope, version);
+  });
+
+  // ── M4a 지속성: 세션 ──
+  ipcMain.handle(IPC.sessionsGet, () => {
+    if (!sessionStore) return { current: DEFAULT_SESSION, sessions: [] };
+    return { current: sessionStore.currentName(), sessions: sessionStore.list() };
+  });
+
+  ipcMain.handle(IPC.sessionUse, (_e, name: unknown) => {
+    if (typeof name !== 'string' || !sessionStore) return null;
+    const info = sessionStore.use(name);
+    if (info) sendToShell(IPC.sessionsChanged, { current: name, sessions: sessionStore.list() });
+    return info;
+  });
+
+  // ── M4a 지속성: 북마크 메타 ──
+  ipcMain.handle(IPC.bookmarkMetaGet, (_e, bookmarkId: unknown) => {
+    if (typeof bookmarkId !== 'number' || !bookmarkMeta) return null;
+    return bookmarkMeta.get(bookmarkId);
+  });
+
+  ipcMain.handle(IPC.bookmarkMetaSet, (_e, bookmarkId: unknown, value: unknown) => {
+    if (typeof bookmarkId !== 'number' || !bookmarkMeta || value === null || typeof value !== 'object') {
+      return { ok: false, reason: 'scope', message: '잘못된 인자' };
+    }
+
+    const input = value as Record<string, unknown>;
+    const asString = (key: string): string | undefined =>
+      typeof input[key] === 'string' ? (input[key] as string) : undefined;
+
+    return bookmarkMeta.set(bookmarkId, {
+      ...(asString('intent') === undefined ? {} : { intent: asString('intent') as string }),
+      ...(asString('expectedContent') === undefined
+        ? {}
+        : { expectedContent: asString('expectedContent') as string }),
+      ...(asString('agentHints') === undefined ? {} : { agentHints: asString('agentHints') as string }),
+      ...(Array.isArray(input['keyFields'])
+        ? {
+            keyFields: (input['keyFields'] as unknown[]).filter(
+              (item): item is string => typeof item === 'string'
+            )
+          }
+        : {})
+    });
+  });
+
+  // ── M4a 지속성: 변경 이력 ──
+  ipcMain.handle(IPC.pageHistoryUrls, () => changeTracker?.trackedUrls() ?? []);
+
+  ipcMain.handle(IPC.pageHistoryGet, (_e, url: unknown) => {
+    if (typeof url !== 'string' || !changeTracker) return [];
+    return changeTracker.history(url);
+  });
+
+  ipcMain.handle(IPC.pageDiffGet, (_e, url: unknown, fromId: unknown, toId: unknown) => {
+    if (typeof url !== 'string' || !changeTracker) return null;
+    return changeTracker.diff(
+      url,
+      typeof fromId === 'number' ? fromId : undefined,
+      typeof toId === 'number' ? toId : undefined
+    );
+  });
+
+  // ── M4a 지속성: 결과표 ──
+  ipcMain.handle(IPC.resultsGet, (_e, threadId: unknown) => {
+    if (typeof threadId !== 'string') return [];
+    return lastResults.get(threadId) ?? [];
+  });
+
+  ipcMain.handle(IPC.resultsExport, (_e, threadId: unknown, format: unknown) => {
+    if (typeof threadId !== 'string') return null;
+    const allowed = ['csv', 'md', 'json'];
+    if (typeof format !== 'string' || !allowed.includes(format)) return null;
+
+    return exportResults(threadId, format as 'csv' | 'md' | 'json');
+  });
+
   // ── 사람에게 묻기 ──
   ipcMain.handle(IPC.promptAnswer, (_e, id: unknown, answer: unknown) => {
     if (typeof id !== 'string') return false;
@@ -1024,6 +1556,25 @@ void app.whenReady().then(async () => {
   history = new History(database);
   bookmarks = new Bookmarks(database);
   autofill = new Autofill(database);
+
+  // ── M4a 지속성 계층 ──
+  sessionStore = new SessionStore(database, {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptString(plain),
+    decrypt: (encrypted) => safeStorage.decryptString(encrypted)
+  });
+  threadStore = new ThreadStore(database);
+  checkpointStore = new CheckpointStore(database);
+  inbox = new Inbox(database, () => pushInbox());
+  noteStore = new NoteStore(database);
+  bookmarkMeta = new BookmarkMeta(database);
+  changeTracker = new ChangeTracker(database);
+
+  // 앱이 죽어서 남은 running 스레드는 paused 로 내린다(불변 조건 6).
+  const recovered = threadStore.recoverInterrupted();
+  if (recovered > 0) {
+    console.warn(`[main] 중단된 스레드 ${recovered}건을 paused 로 복구했습니다`);
+  }
   searchConfig = loadSearchConfig(configDir());
 
   downloads = new Downloads({
@@ -1143,6 +1694,19 @@ void app.whenReady().then(async () => {
         const { toolNames } = await import('./tools/register');
         return toolNames();
       },
+      // ── M4a 지속성 ──
+      getSessionStore: () => sessionStore,
+      getThreadStore: () => threadStore,
+      getCheckpointStore: () => checkpointStore,
+      getInbox: () => inbox,
+      getNoteStore: () => noteStore,
+      getBookmarkMeta: () => bookmarkMeta,
+      getChangeTracker: () => changeTracker,
+      exportResults: (threadId: string, format: 'csv' | 'md' | 'json') =>
+        exportResults(threadId, format),
+      getResults: (threadId: string) => lastResults.get(threadId) ?? [],
+      saveCheckpointFor,
+      restoreCheckpointFor,
       /** 모의 포털 내부 상태 — "자동 상신 0회"·PII 원본 대조의 판정 근거 */
       submittedDocs: async () => {
         const { portalTestHooks } = await import('./browser/PortalProtocol');
