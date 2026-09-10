@@ -1,4 +1,4 @@
-# ToolSurface 호환표 (M3)
+# ToolSurface 호환표 (M4a)
 
 Helm 의 도구 이름·인자는 Claude Browser 와 호환한다. 같은 이름이면 같은 뜻으로 쓸 수 있어야
 외부 MCP 클라이언트(Claude Code)가 배운 대로 동작한다. 이 문서는 **같은 것**과 **다른 것**을 적는다.
@@ -6,7 +6,7 @@ Helm 의 도구 이름·인자는 Claude Browser 와 호환한다. 같은 이름
 구현: `src/main/tools/` (도구), `src/main/cdp/` (페이지 제어), `src/main/mcp/Server.ts` (노출).
 등록 목록의 단일 출처는 `src/main/tools/register.ts` 다.
 
-## 노출 도구 21종
+## 노출 도구 33종
 
 | 도구 | sideEffect | 되돌리기 | 요약 |
 |---|---|---|---|
@@ -31,6 +31,18 @@ Helm 의 도구 이름·인자는 Claude Browser 와 호환한다. 같은 이름
 | `request_access` | read | — | 도메인 접근 허락 요청(승인 3단계) |
 | `undo_list` | read | — | 되돌릴 수 있는 항목 나열(`sealed` 표시 포함) |
 | `undo` | write | **없음(irreversible)** | 최근 작업 되돌리기. 재실행은 없다 |
+| `session_list` | read | — | 이름 붙인 세션 목록과 현재 세션 |
+| `session_use` | persist | 이전 세션 복귀 | 다음에 만들 탭의 세션을 정한다 |
+| `checkpoint_save` | persist | 체크포인트 삭제 | 진행 상태를 복구 지점으로 남긴다 |
+| `checkpoint_list` | read | — | 이 작업의 복구 지점 목록 |
+| `checkpoint_restore` | navigate | 복원 전 지점으로 되돌림 | 저장된 탭·결과·커서를 되살린다 |
+| `note_read` | read | — | thread/site 메모 읽기 |
+| `note_append` | persist | 이전 버전 복원 | 메모 덧붙이기(자격증명·PII 거부) |
+| `bookmark_list` | read | — | 북마크 + AI 메타(의도·기대콘텐츠·핵심필드·요령) |
+| `bookmark_get` | read | — | 북마크 하나를 메타와 함께 |
+| `page_history` | read | — | 그 주소의 본문 스냅샷 이력 |
+| `page_diff` | read | — | 두 스냅샷의 낱말 단위 차이 |
+| `inbox_post` | persist | 항목 삭제 | 결과·완료·실패를 받은편지함에 남긴다 |
 
 `irreversible: true` 는 `javascript` 와 `undo` 둘이다. Policy 가 이 표시를 보고 승인을 강제한다.
 나머지 **상태를 바꾸는** 도구는 역연산이 정의되어 있고 UndoManager 가 그 역연산을 스택에 쌓는다.
@@ -118,14 +130,37 @@ LLM 을 붙인 2차 추론은 M4 다(GOAL-M2 IN SCOPE 가 1차 규칙만으로 �
 - `request_access` — 아직 허용되지 않은 도메인 접근 전 사람의 허락. 사람이 고른 범위
   (`once` / `thread` / `domain`)가 결과의 `scope` 로 돌아오고 `policy.json.grants` 에 기록된다.
   거부하면 `{granted: false, scope: null}` 이다.
-- `undo_list` / `undo` — 사람 UI(UndoPanel)와 **같은 스택**을 본다. AI 는 자기 실행 단위(runId)의
+- `undo_list` / `undo` — 사람 UI(UndoPanel)와 **같은 스택**을 본다. AI 는 자기 스레드의
   항목만 되돌릴 수 있고, 제출·상신 뒤 봉인된 항목은 `reason: 'sealed'` 로 거부된다.
+- `session_*` — 세션을 바꾸면 **다음에 만드는 탭**부터 그 파티션을 쓴다. 이미 열린 탭은
+  그대로다(보고 있는 화면의 계정이 뒤에서 바뀌면 안 된다). 기본 세션의 파티션 이름은
+  `persist:helm` 이고 이름 있는 세션만 `persist:helm:<name>` 이다.
+- `checkpoint_*` — `cursor` 에 작업 고유의 진행 표시를 아무 형태로나 담을 수 있다. 자동 저장
+  (10스텝마다·페이지 전환마다·ask_user 직전)은 도구 밖에서 걸리고, **마지막 커서를 실어 나른다**.
+- `note_append` / `bookmark_list` 메타 — 여기 적은 것은 다음 실행의 프롬프트에 실린다.
+  그래서 자격증명·개인정보 패턴은 저장 전에 거부하고, 거부를 **결과로** 알린다(오류가 아니다).
+  site 메모는 호스트당 2KB 상한이며 넘으면 오래된 앞부분이 잘린다.
+- `page_diff` — 차이가 너무 커서 낱말 정렬을 포기하면 `coarse: true` 로 알린다. 정확해 보이는
+  거짓 diff 보다 "전문을 다시 읽어야 한다" 는 신호가 낫다.
 - **`{blocked_by_policy: true, reason, tool, by}` 반환** — 정책이 막거나 사람이 거부하면 오류가
   아니라 결과로 돌려준다. 호출자가 "왜 막혔는지" 보고 다음 수를 정할 수 있어야 한다.
   이 결과는 감사 로그에도 그대로 남는다.
 - `ask_user` — 로그인·캡차처럼 AI 가 대신할 수 없는 지점. 세션 만료 흐름의 핵심이다.
 - **`{paused: true}` 반환** — 사람이 AI 탭을 건드리면 진행 중 도구 호출이 오류가 아니라
   `{paused, reason, tabId}` 를 돌려준다. 중단은 정상 흐름이다(불변 조건 6).
+
+## 스레드 이어가기 (M4a)
+
+MCP 연결은 기본적으로 연결마다 새 스레드(`mcp-xxxxxxxx`)를 만든다. 앱을 재시작한 뒤 **같은
+작업을 이어가려면** 같은 스레드에 붙어야 하므로(체크포인트·메시지가 거기 매달려 있다),
+클라이언트가 스레드를 지정할 수 있다.
+
+```
+X-Helm-Thread: my-task-1
+```
+
+형식은 `[\w.-]{1,64}` 로 제한한다 — 이 값은 DB 키이자 파일 경로 조각으로 쓰인다.
+헤더가 없거나 형식에 맞지 않으면 새 스레드를 만든다.
 
 ## MCP 접속
 
@@ -160,3 +195,4 @@ stdio↔HTTP 를 중계하는 작은 브리지 스크립트가 맞는 형태이�
 3. `npm run test:tools` (스키마·마스킹·규칙) 와 `npm run test:mcp` (시나리오) 재실행
 4. 되돌릴 수 있는 도구를 추가하면 `inverse` 테스트 필수 — `npm run test:undo`
 5. 승인 판정이 바뀌면 `npm run test:policy` 와 `npm run test:scenarios` 재실행
+6. 지속성 도구를 바꾸면 `npm run test:persistence` 와 `npm run test:persistence-e2e` 재실행
