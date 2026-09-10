@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { esc, html, json, notFound, page } from './portals/html';
+import { PORTAL_E, portalEHooks, routePortalE } from './portals/wiki';
+import { PORTAL_G, portalGHooks, routePortalG } from './portals/messenger';
 
 /**
  * 모의 사내 포털 3종. `app://portal-a|portal-b|portal-c` 로 서비스한다.
@@ -10,7 +13,9 @@ import path from 'node:path';
  *   B ITSM형 SPA — 필터 폼 → XHR JSON, 가상 스크롤, total 필드
  *   C 규정 포털형 — iframe 중첩, window.open 팝업, 첨부 PDF, EUC-KR 페이지
  *   D 인사 포털형 — 조직도 트리 + 구성원 목록에 개인정보(이름·사번 7자리·전화·이메일) 노출
+ *   E 위키형     — 지연 로딩 목차, 400 페이지, 깨진 링크 30 + 구 도메인 링크 20 (portals/wiki.ts)
  *   F 전자결재형 — POST 검색 폼, 리치 에디터 iframe(contenteditable), "상신" 버튼
+ *   G 메신저형   — 가상 스크롤, 접힌 스레드, /messages JSON (portals/messenger.ts)
  *   billing 청구 포털 — F 시나리오가 금액을 가져오는 별도 탭
  *
  * 패키징된 앱에는 등록하지 않는다(installAppProtocol 호출부에서 판단).
@@ -21,7 +26,9 @@ export const PORTAL_HOSTS = [
   'portal-b',
   'portal-c',
   'portal-d',
+  'portal-e',
   'portal-f',
+  'portal-g',
   'portal-billing'
 ] as const;
 export type PortalHost = (typeof PORTAL_HOSTS)[number];
@@ -204,60 +211,6 @@ const submitted = new Set<string>();
 // ─────────────────────────────────────────────────────────────
 // HTML 조립
 // ─────────────────────────────────────────────────────────────
-
-function esc(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function page(title: string, body: string, extraHead = ''): string {
-  return `<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8" />
-<title>${esc(title)}</title>
-<style>
-  body { font: 14px/1.6 "Malgun Gothic", system-ui, sans-serif; margin: 0; color: #1c1c1e; background: #fff; }
-  header { background: #23408e; color: #fff; padding: 10px 16px; font-weight: 600; }
-  main { padding: 16px; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { border: 1px solid #d5d5dd; padding: 6px 8px; text-align: left; }
-  th { background: #f1f3f8; }
-  .pager { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
-  .pager a { padding: 4px 9px; border: 1px solid #c9c9d3; text-decoration: none; color: #23408e; }
-  .pager a[aria-current="page"] { background: #23408e; color: #fff; }
-  .danger { background: #b3261e; color: #fff; border: 0; padding: 6px 10px; cursor: pointer; }
-  label { display: inline-flex; gap: 4px; align-items: center; margin-right: 12px; }
-</style>
-${extraHead}
-</head>
-<body>
-${body}
-</body>
-</html>
-`;
-}
-
-function html(body: string, status = 200, extraHeaders: Record<string, string> = {}): Response {
-  return new Response(body, {
-    status,
-    headers: { 'content-type': 'text/html; charset=utf-8', ...extraHeaders }
-  });
-}
-
-function json(value: unknown): Response {
-  return new Response(JSON.stringify(value), {
-    status: 200,
-    headers: { 'content-type': 'application/json; charset=utf-8' }
-  });
-}
-
-function notFound(): Response {
-  return new Response('Not Found', { status: 404, headers: { 'content-type': 'text/plain' } });
-}
 
 /**
  * 커스텀 스킴에서 302 를 Chromium 이 따라가지 않는 경우가 있어, 스크립트로 실제 탐색을 일으킨다.
@@ -876,7 +829,9 @@ export async function handlePortalRequest(
   if (host === 'portal-b') return routePortalB(url);
   if (host === 'portal-c') return routePortalC(ctx, url);
   if (host === 'portal-d') return routePortalD(url);
+  if (host === 'portal-e') return routePortalE(url);
   if (host === 'portal-f') return routePortalF(request, url);
+  if (host === 'portal-g') return routePortalG(url);
   if (host === 'portal-billing') return html(portalBillingIndex());
   return null;
 }
@@ -885,7 +840,11 @@ export async function handlePortalRequest(
 export const portalTestHooks = {
   setSession,
   hasValidSession,
+  wiki: portalEHooks,
+  chat: portalGHooks,
   counts: {
+    portalETotal: PORTAL_E.sections * PORTAL_E.pagesPerSection,
+    portalGTotal: PORTAL_G.total,
     portalATotal: PORTAL_A_TOTAL,
     portalAPages: PORTAL_A.pages,
     portalBTotal: PORTAL_B.total,
