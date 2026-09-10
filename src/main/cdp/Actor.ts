@@ -11,6 +11,8 @@ import { resolveRef } from './PageReader';
  * 봇 탐지 우회 목적의 입력 위조는 하지 않는다(CLAUDE.md 불변 조건 9).
  */
 
+// CDP 의 Input 도메인에는 enable 메서드가 없다(항상 열려 있다). 다른 도메인과 달리 준비 호출이 없다.
+
 export interface Point {
   x: number;
   y: number;
@@ -107,7 +109,6 @@ async function mouse(
   button: MouseButton,
   clickCount: number
 ): Promise<void> {
-  await enableDomain(wc, 'Input');
   await send(wc, 'Input.dispatchMouseEvent', {
     type,
     x: Math.round(point.x),
@@ -161,7 +162,6 @@ export async function type(
   options: { clear?: boolean } = {}
 ): Promise<void> {
   await enableDomain(wc, 'DOM');
-  await enableDomain(wc, 'Input');
 
   if (target.ref) {
     const entry = resolveRef(wc, target.ref);
@@ -201,7 +201,6 @@ const MODIFIER_BITS: Record<string, number> = { alt: 1, ctrl: 2, control: 2, met
 
 /** `ctrl+a`, `enter` 같은 표기를 받아 키를 보낸다. */
 export async function key(wc: WebContents, combo: string): Promise<void> {
-  await enableDomain(wc, 'Input');
 
   const parts = combo.toLowerCase().split('+').map((part) => part.trim());
   const name = parts[parts.length - 1] ?? '';
@@ -237,7 +236,6 @@ export async function scroll(
   deltaX: number,
   deltaY: number
 ): Promise<void> {
-  await enableDomain(wc, 'Input');
   await send(wc, 'Input.dispatchMouseEvent', {
     type: 'mouseWheel',
     x: Math.round(point.x),

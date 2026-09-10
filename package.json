@@ -12,9 +12,11 @@
     "start": "electron-vite preview",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "lint": "eslint . --max-warnings=0",
-    "smoke": "electron-vite build && playwright test",
+    "smoke": "electron-vite build && playwright test scripts/smoke.ts",
     "test:unit": "vitest run",
-    "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs"
+    "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs",
+    "test:tools": "electron-vite build && playwright test scripts/tool-tests.ts",
+    "test:mcp": "electron-vite build && playwright test scripts/mcp-scenarios.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

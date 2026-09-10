@@ -40,45 +40,6 @@ interface SmokeBrowserState {
   canRestoreClosedTab: boolean;
 }
 
-/** HELM_E2E=1 일 때만 메인 프로세스에 노출되는 테스트 훅. */
-interface HelmE2EHook {
-  getTabManager: () => {
-    createTab: (url?: string) => number;
-    closeTab: (id: number) => void;
-    selectTab: (id: number) => void;
-    navigate: (id: number, input: string) => boolean;
-    moveTab: (id: number, toIndex: number) => boolean;
-    setPinned: (id: number, pinned: boolean) => boolean;
-    restoreClosedTab: () => number | null;
-    unloadIdleTabs: (now?: number) => number;
-    indexOf: (id: number) => number;
-    getState: () => SmokeBrowserState;
-    getWebContents: (id: number) => Electron.WebContents | null;
-    getTabBounds: (id: number) => Electron.Rectangle | null;
-    expectedContentBounds: () => Electron.Rectangle;
-    activeTabId: number | null;
-  } | null;
-  getWindow: () => Electron.BaseWindow | null;
-  getShell: () => Electron.WebContentsView | null;
-  getShellState: () => { panel: string; find: unknown; theme: string; darkMode: boolean };
-  getHistory: () => { clear: () => void; count: () => number } | null;
-  getBookmarks: () => { count: () => number } | null;
-  getDownloads: () => { list: () => { fileName: string; state: string; savePath: string }[] } | null;
-  getSession: () => Electron.Session;
-  setPanel: (panel: string) => void;
-  loadExtensionsFrom: (
-    dirs: { name: string; path: string }[]
-  ) => Promise<
-    { name: string; ok: boolean; manifestName: string | null; version: string | null; error: string | null; unsupportedPermissions: string[] }[]
-  >;
-  downloadDir: string;
-  sessionPartition: string;
-}
-
-declare global {
-  var __helm: HelmE2EHook | undefined;
-}
-
 // ─────────────────────────────────────────────────────────────
 // 공통 헬퍼
 // ─────────────────────────────────────────────────────────────

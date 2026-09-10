@@ -1,4 +1,5 @@
 import type {
+  AiState,
   Bookmark,
   BrowserState,
   DownloadItem,
@@ -6,6 +7,7 @@ import type {
   FindState,
   HistoryEntry,
   OmniboxSuggestion,
+  PendingPrompt,
   ProfileImportResult,
   ReaderPayload,
   ShellPanel,
@@ -102,6 +104,16 @@ export interface HelmApi {
   discoverProfiles(): Promise<DiscoveredProfileInfo[]>;
   runImport(dir: string): Promise<ProfileImportResult | null>;
 
+  // AI 코브라우징 / Handoff
+  getAiState(): Promise<AiState>;
+  /** "이어서" — 개입이 있었음을 호출자에게 알리고 계속한다. */
+  resumeAi(): Promise<boolean>;
+  /** "여기까지" — 스레드를 끝내고 탭 소유권을 사람에게 넘긴다. */
+  takeOverAi(): Promise<boolean>;
+  setOverlayEnabled(enabled: boolean): Promise<boolean>;
+  /** ask_user / request_access 에 답한다. */
+  answerPrompt(id: string, answer: string): Promise<boolean>;
+
   // 구독 — 반환값을 호출하면 해제된다.
   onStateChanged(listener: (state: BrowserState) => void): () => void;
   onShellChanged(listener: (state: ShellState) => void): () => void;
@@ -109,4 +121,6 @@ export interface HelmApi {
   onDownloadsChanged(listener: (downloads: DownloadItem[]) => void): () => void;
   onFocusOmnibox(listener: () => void): () => void;
   onFocusFindBar(listener: () => void): () => void;
+  onAiStateChanged(listener: (state: AiState) => void): () => void;
+  onPromptRequested(listener: (prompt: PendingPrompt) => void): () => void;
 }

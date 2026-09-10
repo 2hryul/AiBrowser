@@ -166,7 +166,9 @@ export const LAYOUT = {
   /** 가로 탭바 높이 (orientation === 'horizontal') */
   horizontalTabStripHeight: 36,
   /** 페이지 내 찾기 바 높이 */
-  findBarHeight: 40
+  findBarHeight: 40,
+  /** AI 일시정지 띠 높이 */
+  pauseBarHeight: 36
 } as const;
 
 /** 유휴 탭 언로드 임계 시간 — 30분 */

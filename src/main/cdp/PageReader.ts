@@ -121,6 +121,42 @@ function propOf(node: RawAxNode, name: string): unknown {
   return node.properties?.find((property) => property.name === name)?.value?.value;
 }
 
+/** 불릿만으로 된 문자열(Chromium 이 비밀번호를 가린 형태)인지. */
+const BULLETS_ONLY = /^[•*·●]{3,}$/;
+
+/**
+ * 프레임 안의 `input[type=password]` 의 backendNodeId 를 모은다.
+ *
+ * 접근성 트리의 속성 이름에 의존하지 않고 DOM 으로 직접 확인한다 —
+ * Chromium 이 이미 값을 불릿으로 가려 주지만, 마스킹을 그 동작에 의존하지 않는다.
+ */
+async function passwordBackendIds(wc: WebContents, frameId: string): Promise<Set<number>> {
+  const ids = new Set<number>();
+
+  try {
+    const doc = await send<{ root: { nodeId: number } }>(wc, 'DOM.getDocument', {
+      depth: 1,
+      frameId
+    });
+
+    const found = await send<{ nodeIds: number[] }>(wc, 'DOM.querySelectorAll', {
+      nodeId: doc.root.nodeId,
+      selector: 'input[type=password]'
+    });
+
+    for (const nodeId of found.nodeIds) {
+      const described = await send<{ node: { backendNodeId?: number } }>(wc, 'DOM.describeNode', {
+        nodeId
+      });
+      if (described.node.backendNodeId !== undefined) ids.add(described.node.backendNodeId);
+    }
+  } catch (error) {
+    console.warn(`[passwordBackendIds] 조회 실패 - frame ${frameId}`, error);
+  }
+
+  return ids;
+}
+
 /**
  * 접근성 트리를 읽어 평탄한 노드 목록으로 만든다.
  *
@@ -164,6 +200,7 @@ export async function readPage(
       continue;
     }
 
+    const secretIds = await passwordBackendIds(wc, frame.id);
     const byId = new Map(tree.nodes.map((node) => [node.nodeId, node]));
     const roots = tree.nodes.filter(
       (node) => !tree.nodes.some((other) => other.childIds?.includes(node.nodeId))
@@ -186,12 +223,18 @@ export async function readPage(
           table.entries.set(ref, { backendNodeId: node.backendDOMNodeId });
         }
 
-        const entry: AxNode = { ref, role, name, depth };
+        // 비밀번호 입력이거나, 값이 불릿뿐이면(이미 가려진 값) 표기를 *** 로 통일한다.
+        const isSecret =
+          (node.backendDOMNodeId !== undefined && secretIds.has(node.backendDOMNodeId)) ||
+          propOf(node, 'password') === true ||
+          BULLETS_ONLY.test(name);
+
+        const entry: AxNode = { ref, role, name: isSecret && BULLETS_ONLY.test(name) ? MASKED_VALUE : name, depth };
 
         const value = node.value?.value;
         if (typeof value === 'string' && value !== '') {
           // password 입력 값은 어떤 읽기 도구로도 새어 나가지 않는다.
-          entry.value = propOf(node, 'password') === true ? MASKED_VALUE : value;
+          entry.value = isSecret || BULLETS_ONLY.test(value) ? MASKED_VALUE : value;
         }
         if (frame.id !== frames[0]?.id) entry.frameId = frame.id;
         if (propOf(node, 'disabled') === true) entry.disabled = true;

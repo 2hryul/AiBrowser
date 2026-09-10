@@ -143,6 +143,7 @@ function refreshAiState(partial: Partial<AiState> = {}): void {
     ? tabManager.getState().tabs.filter((tab) => tab.owner === 'ai').map((tab) => tab.id)
     : [];
 
+  const previousStatus = aiState.status;
   aiState = {
     ...aiState,
     aiTabIds,
@@ -150,6 +151,9 @@ function refreshAiState(partial: Partial<AiState> = {}): void {
     mcpEndpoint: mcpEndpoint?.url ?? null,
     ...partial
   };
+
+  // 일시정지 띠가 생기거나 사라지면 웹 콘텐츠 영역이 그만큼 움직인다.
+  if (previousStatus !== aiState.status) applyInsets();
   pushAiState();
 }
 
@@ -181,6 +185,7 @@ function applyInsets(): void {
       LAYOUT.toolbarHeight +
       (vertical ? 0 : LAYOUT.horizontalTabStripHeight) +
       (shell.bookmarksBarVisible ? LAYOUT.bookmarksBarHeight : 0) +
+      (aiState.status === 'paused' ? LAYOUT.pauseBarHeight : 0) +
       (shell.find ? LAYOUT.findBarHeight : 0)
   };
 
@@ -896,6 +901,9 @@ void app.whenReady().then(async () => {
 
   shell.theme = getThemeSource();
   shell.darkMode = isDarkMode();
+
+  // ToolSurface 는 MCP 와 무관하게 항상 등록한다 — 내장 에이전트(M4)도 같은 레지스트리를 쓴다.
+  registerAllTools();
 
   registerIpc();
   createWindow(helmSession);

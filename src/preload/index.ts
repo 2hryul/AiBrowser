@@ -79,6 +79,13 @@ const api: HelmApi = {
   discoverProfiles: () => ipcRenderer.invoke(IPC.importDiscover),
   runImport: (dir) => ipcRenderer.invoke(IPC.importRun, dir),
 
+  // AI 코브라우징 / Handoff
+  getAiState: () => ipcRenderer.invoke(IPC.aiStateGet),
+  resumeAi: () => ipcRenderer.invoke(IPC.aiResume),
+  takeOverAi: () => ipcRenderer.invoke(IPC.aiTakeOver),
+  setOverlayEnabled: (enabled) => ipcRenderer.invoke(IPC.aiOverlayToggle, enabled),
+  answerPrompt: (id, answer) => ipcRenderer.invoke(IPC.promptAnswer, id, answer),
+
   // 구독
   onStateChanged: (listener) => subscribe(IPC.stateChanged, listener),
   onShellChanged: (listener) => subscribe(IPC.shellChanged, listener),
@@ -93,7 +100,9 @@ const api: HelmApi = {
     const wrapped = (): void => listener();
     ipcRenderer.on(IPC.focusFindBar, wrapped);
     return () => ipcRenderer.removeListener(IPC.focusFindBar, wrapped);
-  }
+  },
+  onAiStateChanged: (listener) => subscribe(IPC.aiStateChanged, listener),
+  onPromptRequested: (listener) => subscribe(IPC.promptRequested, listener)
 };
 
 contextBridge.exposeInMainWorld('helm', api);

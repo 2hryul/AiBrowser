@@ -9,6 +9,8 @@ import { HistoryPanel } from './components/panels/HistoryPanel';
 import { DownloadsPanel } from './components/panels/DownloadsPanel';
 import { BookmarksPanel } from './components/panels/BookmarksPanel';
 import { ReaderView } from './components/panels/ReaderView';
+import { PauseResumeBar } from './components/control/PauseResumeBar';
+import { PromptDialog } from './components/control/PromptDialog';
 
 export function App(): JSX.Element {
   const tabs = useShellStore((s) => s.tabs);
@@ -18,12 +20,17 @@ export function App(): JSX.Element {
   const shell = useShellStore((s) => s.shell);
   const bookmarks = useShellStore((s) => s.bookmarks);
   const downloads = useShellStore((s) => s.downloads);
+  const ai = useShellStore((s) => s.ai);
+  const prompts = useShellStore((s) => s.prompts);
   const activeTab = useShellStore(selectActiveTab);
 
   const applyBrowserState = useShellStore((s) => s.applyBrowserState);
   const applyShellState = useShellStore((s) => s.applyShellState);
   const setBookmarks = useShellStore((s) => s.setBookmarks);
   const setDownloads = useShellStore((s) => s.setDownloads);
+  const setAiState = useShellStore((s) => s.setAiState);
+  const addPrompt = useShellStore((s) => s.addPrompt);
+  const removePrompt = useShellStore((s) => s.removePrompt);
 
   // 최초 1회 상태를 읽고, 이후는 메인의 푸시만 받는다(폴링 없음).
   useEffect(() => {
@@ -31,16 +38,19 @@ export function App(): JSX.Element {
       window.helm.onStateChanged(applyBrowserState),
       window.helm.onShellChanged(applyShellState),
       window.helm.onBookmarksChanged(setBookmarks),
-      window.helm.onDownloadsChanged(setDownloads)
+      window.helm.onDownloadsChanged(setDownloads),
+      window.helm.onAiStateChanged(setAiState),
+      window.helm.onPromptRequested(addPrompt)
     ];
 
     void window.helm.getState().then(applyBrowserState);
     void window.helm.getShellState().then(applyShellState);
     void window.helm.bookmarksList().then(setBookmarks);
     void window.helm.downloadsList().then(setDownloads);
+    void window.helm.getAiState().then(setAiState);
 
     return () => unsubscribers.forEach((off) => off());
-  }, [applyBrowserState, applyShellState, setBookmarks, setDownloads]);
+  }, [applyBrowserState, applyShellState, setBookmarks, setDownloads, setAiState, addPrompt]);
 
   // 메인이 판정한 다크모드를 문서 속성으로 내린다.
   // nativeTheme 변경이 WebContentsView 의 prefers-color-scheme 으로 전파되지 않아
@@ -89,6 +99,12 @@ export function App(): JSX.Element {
           </div>
         ) : null}
 
+        {ai.status === 'paused' ? (
+          <div className="shrink-0" style={{ height: LAYOUT.pauseBarHeight }}>
+            <PauseResumeBar ai={ai} />
+          </div>
+        ) : null}
+
         {shell.find ? (
           <div className="shrink-0" style={{ height: LAYOUT.findBarHeight }}>
             <FindBar find={shell.find} />
@@ -99,7 +115,8 @@ export function App(): JSX.Element {
           이 영역은 평소 탭의 WebContentsView 가 덮는다.
           내부 화면(패널)이 열리면 메인이 탭 뷰를 숨기므로 여기 그린 내용이 보인다(ADR 0005).
         */}
-        <main className="min-h-0 flex-1 bg-shell-panel">
+        <main className="relative min-h-0 flex-1 bg-shell-panel">
+          {prompts[0] ? <PromptDialog prompt={prompts[0]} onAnswered={removePrompt} /> : null}
           {shell.panel === 'history' ? <HistoryPanel activeTabId={activeTabId} /> : null}
           {shell.panel === 'downloads' ? <DownloadsPanel downloads={downloads} /> : null}
           {shell.panel === 'bookmarks' ? (
