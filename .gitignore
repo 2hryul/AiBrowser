@@ -10,3 +10,9 @@ playwright-report/
 goals.zip
 .smoke-downloads/
 .smoke-profile-import/
+.portal-profile/
+.portal-downloads/
+.theme-profile/
+.find-profile/
+.cookie-profile/
+.diag-profile/
