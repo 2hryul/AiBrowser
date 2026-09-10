@@ -1,0 +1,11 @@
+{
+  "date": "2026-03-17",
+  "verdict": "FAIL",
+  "findings": [
+    {
+      "kind": "missing_settle",
+      "txId": "TX-20260317-06",
+      "note": "회계에만 있는 전표 — 정산 내역이 없다"
+    }
+  ]
+}

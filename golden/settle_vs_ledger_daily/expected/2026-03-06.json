@@ -1,0 +1,11 @@
+{
+  "date": "2026-03-06",
+  "verdict": "FAIL",
+  "findings": [
+    {
+      "kind": "missing_ledger",
+      "txId": "TX-20260306-05",
+      "note": "정산에는 있으나 회계 전표가 없다"
+    }
+  ]
+}

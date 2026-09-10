@@ -3,6 +3,9 @@ import path from 'node:path';
 import { esc, html, json, notFound, page } from './portals/html';
 import { PORTAL_E, portalEHooks, routePortalE } from './portals/wiki';
 import { PORTAL_G, portalGHooks, routePortalG } from './portals/messenger';
+import { routePortalSettle, setSettleApi, isSettleApiEnabled } from './portals/settle';
+import { routePortalLedger } from './portals/ledger';
+import { settleHooks } from './portals/settleData';
 
 /**
  * 모의 사내 포털 3종. `app://portal-a|portal-b|portal-c` 로 서비스한다.
@@ -16,6 +19,8 @@ import { PORTAL_G, portalGHooks, routePortalG } from './portals/messenger';
  *   E 위키형     — 지연 로딩 목차, 400 페이지, 깨진 링크 30 + 구 도메인 링크 20 (portals/wiki.ts)
  *   F 전자결재형 — POST 검색 폼, 리치 에디터 iframe(contenteditable), "상신" 버튼
  *   G 메신저형   — 가상 스크롤, 접힌 스레드, /messages JSON (portals/messenger.ts)
+ *   H 정산·회계   — 날짜 조회 → JSON 그리드 / 서버 렌더 표 + xlsx 다운로드
+ *                  (portals/settle.ts · portals/ledger.ts, 20일치에 불일치 6건)
  *   billing 청구 포털 — F 시나리오가 금액을 가져오는 별도 탭
  *
  * 패키징된 앱에는 등록하지 않는다(installAppProtocol 호출부에서 판단).
@@ -29,6 +34,8 @@ export const PORTAL_HOSTS = [
   'portal-e',
   'portal-f',
   'portal-g',
+  'portal-h-settle',
+  'portal-h-ledger',
   'portal-billing'
 ] as const;
 export type PortalHost = (typeof PORTAL_HOSTS)[number];
@@ -832,6 +839,8 @@ export async function handlePortalRequest(
   if (host === 'portal-e') return routePortalE(url);
   if (host === 'portal-f') return routePortalF(request, url);
   if (host === 'portal-g') return routePortalG(url);
+  if (host === 'portal-h-settle') return routePortalSettle(url);
+  if (host === 'portal-h-ledger') return routePortalLedger(url);
   if (host === 'portal-billing') return html(portalBillingIndex());
   return null;
 }
@@ -842,6 +851,10 @@ export const portalTestHooks = {
   hasValidSession,
   wiki: portalEHooks,
   chat: portalGHooks,
+  settle: settleHooks,
+  /** 정산 API 스위치 — 어댑터 사다리(network → dom) 폴백 시험용 */
+  setSettleApi,
+  isSettleApiEnabled,
   counts: {
     portalETotal: PORTAL_E.sections * PORTAL_E.pagesPerSection,
     portalGTotal: PORTAL_G.total,

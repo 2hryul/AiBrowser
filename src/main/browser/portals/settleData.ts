@@ -82,6 +82,14 @@ export interface Planted {
   note: string;
   /** 기대 판정 */
   verdict: 'FAIL' | 'REVIEW';
+  /**
+   * `kind: 'amount'` 일 때 회계 금액이 정산보다 얼마 어긋나는가(원).
+   *
+   * 자릿수를 뒤바꾸는 식의 문자열 조작으로 만들지 않는다 — 자리에 같은 숫자가 오면
+   * 조용히 "차이 없음" 이 되어 심은 불일치가 사라진다(실측으로 잡았다).
+   * 차이를 값으로 못박아 두면 그런 일이 생기지 않는다.
+   */
+  delta?: number;
 }
 
 /**
@@ -96,8 +104,9 @@ export const PLANTED: readonly Planted[] = [
     date: '2026-03-04',
     kind: 'amount',
     txId: 'TX-20260304-02',
-    note: '회계 금액이 자릿수 뒤바뀜 (1,250,000 → 1,205,000)',
-    verdict: 'FAIL'
+    note: '회계 금액 자릿수 뒤바뀜 — 72,000원 적다',
+    verdict: 'FAIL',
+    delta: -72_000
   },
   {
     date: '2026-03-06',
@@ -110,8 +119,9 @@ export const PLANTED: readonly Planted[] = [
     date: '2026-03-11',
     kind: 'amount',
     txId: 'TX-20260311-04',
-    note: '회계 금액이 9만원 적다 (980,000 → 890,000)',
-    verdict: 'FAIL'
+    note: '회계 금액이 90,000원 적다',
+    verdict: 'FAIL',
+    delta: -90_000
   },
   {
     date: '2026-03-17',
@@ -125,7 +135,8 @@ export const PLANTED: readonly Planted[] = [
     kind: 'amount',
     txId: 'TX-20260319-01',
     note: '회계 금액이 500원 많다 — 허용오차 밖',
-    verdict: 'FAIL'
+    verdict: 'FAIL',
+    delta: 500
   },
   {
     date: '2026-03-25',
@@ -200,7 +211,7 @@ export function ledgerRows(date: string): LedgerRow[] {
     let txId = source.txId;
 
     if (amountDiff && amountDiff.txId === source.txId) {
-      amount = won(shiftedAmount(date, index));
+      amount = won(amountFor(date, index) + (amountDiff.delta ?? 0));
     }
 
     if (typo && typo.txId === source.txId) {
@@ -234,22 +245,6 @@ export function ledgerRows(date: string): LedgerRow[] {
   }
 
   return rows;
-}
-
-/** 금액 차이를 심을 때 쓰는 값. 종류별로 다르게 어긋나야 규칙 하나가 다 잡는지 알 수 있다. */
-function shiftedAmount(date: string, index: number): number {
-  const base = amountFor(date, index);
-
-  if (date === '2026-03-04') {
-    // 자릿수 뒤바뀜: 1,250,000 → 1,205,000 꼴
-    const text = String(base);
-    const swapped = `${text.slice(0, 2)}${text[3] ?? '0'}${text[2] ?? '0'}${text.slice(4)}`;
-    return Number(swapped);
-  }
-  if (date === '2026-03-11') return base - 90_000;
-  if (date === '2026-03-19') return base + 500;
-
-  return base;
 }
 
 // ─────────────────────────────────────────────────────────────

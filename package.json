@@ -14,7 +14,7 @@
     "lint": "eslint . --max-warnings=0",
     "smoke": "electron-vite build && playwright test scripts/smoke.ts",
     "test:unit": "vitest run",
-    "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs",
+    "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs && npm run fixtures:golden",
     "test:tools": "electron-vite build && playwright test scripts/tool-tests.ts",
     "test:mcp": "electron-vite build && playwright test scripts/mcp-scenarios.ts",
     "test:policy": "vitest run tests/policy.test.ts",
@@ -23,7 +23,8 @@
     "test:persistence": "vitest run tests/persistence.test.ts tests/portals.test.ts",
     "test:scenario-e": "electron-vite build && playwright test scripts/scenario-e.ts",
     "test:persistence-e2e": "electron-vite build && playwright test scripts/persistence-e2e.ts",
-    "probe:llm": "node scripts/probe-llm.mjs"
+    "probe:llm": "node scripts/probe-llm.mjs",
+    "fixtures:golden": "tsx scripts/make-golden.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -54,6 +55,7 @@
     "globals": "^17.12.0",
     "iconv-lite": "^0.7.3",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2",
     "vite": "^7.3.6",

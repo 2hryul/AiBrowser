@@ -1,0 +1,11 @@
+{
+  "date": "2026-03-11",
+  "verdict": "FAIL",
+  "findings": [
+    {
+      "kind": "amount",
+      "txId": "TX-20260311-04",
+      "note": "회계 금액이 90,000원 적다"
+    }
+  ]
+}
