@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BaseWindow, WebContentsView, ipcMain, session, type Session } from 'electron';
+import { app, BaseWindow, WebContentsView, dialog, ipcMain, session, type Session } from 'electron';
 import { installAppProtocol, registerAppScheme } from './browser/AppProtocol';
 import { TabManager, type ContentInsets } from './browser/TabManager';
 import { attachShortcuts, type ShortcutHandlers } from './browser/Shortcuts';
@@ -17,8 +17,13 @@ import { cycleThemeSource, getThemeSource, isDarkMode, setThemeSource } from './
 import { discoverProfiles, importProfile } from './browser/ProfileImport';
 import { Overlay } from './cobrowse/Overlay';
 import { Handoff } from './control/Handoff';
+import { Policy, PolicyLoadError } from './control/Policy';
+import { Approval, type ApprovalRequest } from './control/Approval';
+import { UndoManager } from './persistence/UndoManager';
+import { AuditLog } from './audit/AuditLog';
 import { startConsoleCapture } from './tools/read_console_messages';
 import { registerAllTools } from './tools/register';
+import { captureMasked } from './tools/computer';
 import type { ToolContext } from './tools/index';
 import { HelmMcpServer, type McpEndpointInfo } from './mcp/Server';
 import { IPC } from './ipc/channels';
@@ -68,9 +73,22 @@ let overlay: Overlay | null = null;
 let handoff: Handoff | null = null;
 let mcpServer: HelmMcpServer | null = null;
 let mcpEndpoint: McpEndpointInfo | null = null;
+let policy: Policy | null = null;
+let approval: Approval | null = null;
+let undoManager: UndoManager | null = null;
+let auditLog: AuditLog | null = null;
+
+/**
+ * 실행 단위. M4 에서 threadId 로 승격된다.
+ * 앱 기동마다 하나를 만들고, MCP 연결은 자기 threadId 를 runId 로 쓴다.
+ */
+const APP_RUN_ID = `run-${Date.now().toString(36)}`;
 
 /** 사람에게 물어 둔 것들. ask_user / request_access 가 여기서 답을 기다린다. */
 const pendingPrompts = new Map<string, { prompt: PendingPrompt; resolve: (answer: string) => void }>();
+
+/** 승인 대기 큐. 헤드리스·MCP 실행에서도 여기 쌓이고 사람이 사이드바에서 처리한다. */
+let approvalQueue: ApprovalRequest[] = [];
 
 /** 마지막으로 셸에 보낸 AI 상태. 셸이 늦게 붙어도 현재 상태를 받을 수 있게 보관한다. */
 let aiState: AiState = {
@@ -465,18 +483,46 @@ async function savePdfForActiveTab(): Promise<void> {
  * 도구 호출 컨텍스트. MCP 연결마다 threadId 가 다르고, 나머지 자원은 공유한다.
  * 여기가 ToolSurface 와 브라우저 본체가 만나는 유일한 지점이다.
  */
-function createToolContext(threadId: string): ToolContext {
-  if (!tabManager || !overlay || !handoff || !downloads) {
+function createToolContext(threadId: string, source = 'mcp'): ToolContext {
+  if (!tabManager || !overlay || !handoff || !downloads || !policy || !approval || !undoManager || !auditLog) {
     throw new Error('[tools] 브라우저가 아직 준비되지 않았습니다');
   }
 
+  const manager = tabManager;
+
   return {
-    tabs: tabManager,
+    tabs: manager,
     session: session.fromPartition(SESSION_PARTITION),
     downloads,
     overlay,
     handoff,
+    policy,
+    approval,
+    undo: undoManager,
+    audit: auditLog,
     threadId,
+    runId: threadId,
+    source,
+    /**
+     * 조작 직후 화면을 남긴다. computer 도구의 캡처 경로를 그대로 써서
+     * 마스킹이 한 곳에서만 이뤄지게 한다(로그용 스크린샷에도 개인정보가 없어야 한다).
+     */
+    captureStep: async (tabId) => {
+      const id = tabId ?? manager.activeTabId;
+      if (id === null) return null;
+
+      const wc = manager.getWebContents(id);
+      if (!wc) return null;
+
+      try {
+        // 도구 호출을 한 번 더 거치지 않는다 — Policy 훅에 걸려 승인을 기다리다 교착된다.
+        const shot = await captureMasked(wc, { scale: 0.5 });
+        return auditLog?.saveScreenshot(shot.image) ?? null;
+      } catch (error) {
+        console.warn('[captureStep] 스크린샷 실패', error);
+        return null;
+      }
+    },
     downloadDir: downloadDir(),
     requestAccess: async (host, reason) => {
       const answer = await askHuman({
@@ -827,6 +873,70 @@ function registerIpc(): void {
     return enabled;
   });
 
+  // ── 승인 (Policy / Approval) ──
+  ipcMain.handle(IPC.approvalQueueGet, () => approvalQueue);
+
+  ipcMain.handle(IPC.approvalAnswer, (_e, id: unknown, scope: unknown) => {
+    if (typeof id !== 'string' || !approval) return false;
+
+    // scope 가 유효한 범위면 승인, 아니면 거부다. 잘못된 값이 승인으로 새지 않게 한다.
+    const allowed = ['once', 'thread', 'domain'];
+    if (typeof scope === 'string' && allowed.includes(scope)) {
+      return approval.answer(id, { granted: true, scope: scope as 'once' | 'thread' | 'domain' });
+    }
+    return approval.answer(id, { granted: false, reason: 'denied' });
+  });
+
+  // ── 정책 설정 화면 ──
+  ipcMain.handle(IPC.policyGet, () => {
+    if (!policy) return null;
+    return { ...policy.snapshot(), locked: policy.isLocked() };
+  });
+
+  ipcMain.handle(IPC.policyRevokeGrant, (_e, index: unknown) => {
+    if (typeof index !== 'number' || !policy) return false;
+    return policy.revokeGrant(index);
+  });
+
+  ipcMain.handle(IPC.policySetDeny, (_e, hosts: unknown, tools: unknown) => {
+    if (!policy) return false;
+    const asStrings = (value: unknown): string[] =>
+      Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+    return policy.setDeny(asStrings(hosts), asStrings(tools));
+  });
+
+  ipcMain.handle(IPC.policySetSite, (_e, host: unknown, decision: unknown) => {
+    if (typeof host !== 'string' || !policy) return false;
+    const allowed = ['allow', 'ask', 'deny'];
+    if (typeof decision !== 'string' || !allowed.includes(decision)) return false;
+    return policy.setSiteDecision(host, decision as 'allow' | 'ask' | 'deny');
+  });
+
+  // ── 되돌리기 ──
+  ipcMain.handle(IPC.undoGet, () => ({
+    runId: APP_RUN_ID,
+    records: undoManager?.list(APP_RUN_ID) ?? []
+  }));
+
+  ipcMain.handle(IPC.undoApply, async (_e, runId: unknown, id: unknown) => {
+    if (!undoManager) return { ok: false, reason: 'failed', message: '되돌리기 준비 안 됨' };
+    const targetRun = typeof runId === 'string' && runId !== '' ? runId : APP_RUN_ID;
+    return undoManager.undo(targetRun, typeof id === 'string' ? id : undefined);
+  });
+
+  // ── 감사 로그 재생 ──
+  ipcMain.handle(IPC.auditRead, () => ({
+    runId: APP_RUN_ID,
+    file: auditLog?.file ?? null,
+    entries: auditLog?.read() ?? []
+  }));
+
+  ipcMain.handle(IPC.auditOpenUrl, (_e, url: unknown) => {
+    if (typeof url !== 'string' || url.trim() === '' || !tabManager) return null;
+    // 재생 화면의 "그 URL 새 탭으로 열기" — 사람이 여는 탭이므로 owner 는 human 이다.
+    return tabManager.createTab(url);
+  });
+
   // ── 사람에게 묻기 ──
   ipcMain.handle(IPC.promptAnswer, (_e, id: unknown, answer: unknown) => {
     if (typeof id !== 'string') return false;
@@ -871,6 +981,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  // 남은 승인 요청은 거부로 떨어뜨린다. 조용히 통과시키지 않는다.
+  approval?.rejectAll();
   void mcpServer?.stop();
   overlay?.dispose();
   handoff?.dispose();
@@ -908,6 +1020,38 @@ void app.whenReady().then(async () => {
 
   shell.theme = getThemeSource();
   shell.darkMode = isDarkMode();
+
+  // ── M3 제어 계층 ──
+  // policy.json 형식이 어긋나면 기동을 세운다(GOAL-M3 FIXED DECISIONS).
+  // 정책 파일이 깨진 채로 도는 것이 정책 없이 도는 것보다 위험하다.
+  try {
+    policy = Policy.load(app.getPath('userData'), path.join(configDir(), 'policy.json'));
+  } catch (error) {
+    if (error instanceof PolicyLoadError) {
+      console.error(error.message);
+      dialog.showErrorBox('정책 파일 오류', error.message);
+      app.exit(1);
+      return;
+    }
+    throw error;
+  }
+
+  approval = new Approval({
+    onRequest: (request) => sendToShell(IPC.approvalRequested, request),
+    onQueueChange: (queue) => {
+      approvalQueue = queue;
+      sendToShell(IPC.approvalQueueChanged, queue);
+      refreshAiState();
+    }
+  });
+
+  // 되돌리기 스택이 바뀌면 셸의 UndoPanel 이 곧바로 따라간다.
+  undoManager = new UndoManager((runId, records) => {
+    sendToShell(IPC.undoChanged, { runId, records });
+  });
+
+  auditLog = new AuditLog(app.getPath('userData'), APP_RUN_ID);
+  AuditLog.prune(app.getPath('userData'), policy.snapshot().retentionDays);
 
   // ToolSurface 는 MCP 와 무관하게 항상 등록한다 — 내장 에이전트(M4)도 같은 레지스트리를 쓴다.
   registerAllTools();
@@ -956,6 +1100,18 @@ void app.whenReady().then(async () => {
       sessionPartition: SESSION_PARTITION,
       layout: LAYOUT,
       // ── M2 도구 표면 ──
+      getPolicy: () => policy,
+      getApproval: () => approval,
+      getUndo: () => undoManager,
+      getAudit: () => auditLog,
+      runId: APP_RUN_ID,
+      approvalQueue: () => approvalQueue,
+      answerApproval: (id: string, scope: string | null) => {
+        if (!approval) return false;
+        return scope === null
+          ? approval.answer(id, { granted: false, reason: 'denied' })
+          : approval.answer(id, { granted: true, scope: scope as 'once' | 'thread' | 'domain' });
+      },
       getOverlay: () => overlay,
       overlayCapture: () => overlay?.capture() ?? Promise.resolve(null),
       overlayLastState: () => overlay?.lastState() ?? null,

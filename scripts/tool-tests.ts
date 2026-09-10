@@ -25,6 +25,20 @@ const THREAD = 'test-tools';
 
 let app: ElectronApplication;
 
+/**
+ * 테스트 프로필에 정책을 미리 심는다.
+ * Policy.load 는 userData/policy.json 이 없을 때만 seed 하므로, 먼저 써 두면 그것이 쓰인다.
+ */
+function seedPolicy(profileDir: string, policy: Record<string, unknown>): void {
+  fs.mkdirSync(profileDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(profileDir, 'policy.json'),
+    `${JSON.stringify(policy, null, 2)}\n`,
+    'utf-8'
+  );
+}
+
+
 /** 도구 호출. 메인에서 실행되고 결과는 JSON 으로 건너온다. */
 async function call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   const raw = await app.evaluate(
@@ -69,6 +83,24 @@ test.beforeAll(async () => {
   fs.rmSync(DOWNLOAD_DIR, { recursive: true, force: true });
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
   fs.mkdirSync(ARTIFACTS, { recursive: true });
+
+  // 이 스펙은 도구를 검증한다. 정책 판정은 test:policy 와 시나리오 D·F 가 본다.
+  // 포털 호스트를 허용해 두어 승인 대기로 멈추지 않게 한다.
+  seedPolicy(PROFILE, {
+    locked: false,
+    sites: {
+      default: 'allow',
+      hosts: {}
+    },
+    deny: { hosts: [], tools: [] },
+    tools: {},
+    grants: [
+      { subject: 'download', host: 'portal-c', scope: 'domain', grantedAt: 0 },
+      { subject: 'upload', host: 'portal-a', scope: 'domain', grantedAt: 0 },
+      { subject: 'javascript', host: 'portal-b', scope: 'domain', grantedAt: 0 }
+    ],
+    retentionDays: 30
+  });
 
   app = await electron.launch({
     args: [ROOT],

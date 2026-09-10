@@ -84,6 +84,27 @@ export const IPC = {
   promptRequested: 'helm:prompt:requested',
   promptAnswer: 'helm:prompt:answer',
 
+  // ── 승인 (Policy / Approval) ────────────────────────
+  approvalRequested: 'helm:approval:requested',
+  approvalQueueChanged: 'helm:approval:queue-changed',
+  approvalAnswer: 'helm:approval:answer',
+  approvalQueueGet: 'helm:approval:queue-get',
+
+  // ── 정책 설정 화면 ──────────────────────────────────
+  policyGet: 'helm:policy:get',
+  policyRevokeGrant: 'helm:policy:revoke-grant',
+  policySetDeny: 'helm:policy:set-deny',
+  policySetSite: 'helm:policy:set-site',
+
+  // ── 되돌리기 ────────────────────────────────────────
+  undoGet: 'helm:undo:get',
+  undoChanged: 'helm:undo:changed',
+  undoApply: 'helm:undo:apply',
+
+  // ── 감사 로그 재생 ──────────────────────────────────
+  auditRead: 'helm:audit:read',
+  auditOpenUrl: 'helm:audit:open-url',
+
   // ── 메인 → 렌더러 요청 ──────────────────────────────
   focusOmnibox: 'helm:shell:focus-omnibox',
   focusFindBar: 'helm:shell:focus-findbar'

@@ -94,10 +94,11 @@ async function handleAppRequest(request: GlobalRequest): Promise<GlobalResponse>
     }
 
     if (parsed && (PORTAL_HOSTS as readonly string[]).includes(parsed.hostname)) {
-      const response = handlePortalRequest(
+      const response = await handlePortalRequest(
         { fixturesDir: path.join(app.getAppPath(), 'fixtures') },
         parsed.hostname,
-        parsed
+        parsed,
+        request
       );
       if (response) return response;
     }

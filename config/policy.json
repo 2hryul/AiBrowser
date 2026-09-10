@@ -1,0 +1,20 @@
+{
+  "locked": false,
+  "sites": {
+    "default": "ask",
+    "hosts": {
+      "home": "allow",
+      "overlay": "allow",
+      "fixtures": "allow"
+    }
+  },
+  "deny": {
+    "hosts": [],
+    "tools": []
+  },
+  "tools": {
+    "javascript": "ask"
+  },
+  "grants": [],
+  "retentionDays": 30
+}

@@ -59,7 +59,8 @@ const getPageTextTool: Tool<Args, Result> = {
   name: 'get_page_text',
   description:
     '페이지의 텍스트를 가져온다. mode=text 는 iframe 을 포함한 화면 텍스트, mode=article 은 ' +
-    '읽기 모드와 같은 추출기로 본문만 뽑는다(광고·내비 제거). 비밀번호 값은 *** 로 가려진다.',
+    '읽기 모드와 같은 추출기로 본문만 뽑는다(광고·내비 제거). ' +
+    '비밀번호는 *** 로, 개인정보(사번·전화·이메일)는 마스킹되어 돌아온다.',
   input: {
     type: 'object',
     properties: {

@@ -175,7 +175,7 @@ const tabsClose: Tool<{ tabId: number }, { closed: boolean; remaining: number }>
   }
 };
 
-const previewStart: Tool<{ url: string }, { tabId: number; url: string }> = {
+const previewStart: Tool<{ url: string }, { tabId: number; url: string; created: boolean }> = {
   name: 'preview_start',
   description:
     '주소를 새 탭(또는 이미 그 주소를 보고 있는 AI 탭)에서 연다. 작업 시작점을 잡을 때 쓴다. ' +
@@ -186,21 +186,41 @@ const previewStart: Tool<{ url: string }, { tabId: number; url: string }> = {
     required: ['url'],
     additionalProperties: false
   },
-  output: { type: 'object', properties: { tabId: { type: 'integer' }, url: { type: 'string' } } },
+  output: {
+    type: 'object',
+    properties: {
+      tabId: { type: 'integer' },
+      url: { type: 'string' },
+      created: { type: 'boolean' }
+    }
+  },
   sideEffect: 'navigate',
   irreversible: false,
+  inverse(ctx, _args, result) {
+    // 이미 있던 탭을 재사용했으면 닫지 않는다 — 남의 탭을 닫는 되돌리기는 되돌리기가 아니다.
+    if (!result.created) return null;
+
+    return {
+      tool: 'preview_start',
+      describe: `탭 ${result.tabId} 닫기`,
+      invert: async () => {
+        ctx.tabs.closeTab(result.tabId);
+        ctx.handoff.releaseTab(result.tabId);
+      }
+    };
+  },
   async run(ctx, args) {
     const existing = ctx.tabs
       .getState()
       .tabs.find((tab) => tab.owner === 'ai' && tab.url === args.url);
 
-    if (existing) return { tabId: existing.id, url: args.url };
+    if (existing) return { tabId: existing.id, url: args.url, created: false };
 
     const tabId = ctx.tabs.createTab(args.url, 'ai');
     const wc = ctx.tabs.getWebContents(tabId);
     if (wc) ctx.handoff.claimTab(tabId, ctx.threadId, wc);
 
-    return { tabId, url: args.url };
+    return { tabId, url: args.url, created: true };
   }
 };
 

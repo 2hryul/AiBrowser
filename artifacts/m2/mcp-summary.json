@@ -1,7 +1,7 @@
 {
   "mcp": {
     "endpoint": "http://127.0.0.1:3199/mcp",
-    "tools": 19,
+    "tools": 21,
     "unauthorizedStatus": 401
   },
   "scenarioA": {

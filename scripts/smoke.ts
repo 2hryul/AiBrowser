@@ -23,6 +23,20 @@ const READER_URL = 'app://fixtures/reader/semantic-article.html';
 const PDF_URL = 'app://fixtures/sample.pdf';
 const COOKIE = { url: 'https://helm.internal/', name: 'helm_smoke_session', value: 'm1-persisted' };
 
+/**
+ * 테스트 프로필에 정책을 미리 심는다.
+ * Policy.load 는 userData/policy.json 이 없을 때만 seed 하므로, 먼저 써 두면 그것이 쓰인다.
+ */
+function seedPolicy(profileDir: string, policy: Record<string, unknown>): void {
+  fs.mkdirSync(profileDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(profileDir, 'policy.json'),
+    `${JSON.stringify(policy, null, 2)}\n`,
+    'utf-8'
+  );
+}
+
+
 interface SmokeTabState {
   id: number;
   title: string;
@@ -211,6 +225,17 @@ test.beforeAll(async () => {
   fs.rmSync(DOWNLOAD_DIR, { recursive: true, force: true });
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
   fs.mkdirSync(ARTIFACTS, { recursive: true });
+
+  // 스모크는 사람이 쓰는 경로를 본다. AI 정책 판정은 test:policy·시나리오가 담당한다.
+  seedPolicy(PROFILE, {
+    locked: false,
+    sites: { default: 'allow', hosts: {} },
+    deny: { hosts: [], tools: [] },
+    tools: {},
+    grants: [],
+    retentionDays: 30
+  });
+
   summary['ranAt'] = new Date().toISOString();
 
   app = await launchApp();

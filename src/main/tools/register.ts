@@ -11,6 +11,7 @@ import { registerReadNetworkRequestsTool } from './read_network_requests';
 import { registerReadConsoleMessagesTool } from './read_console_messages';
 import { registerDownloadTools } from './download';
 import { registerAskTools } from './ask_user';
+import { registerUndoTools } from './undo';
 
 /**
  * ToolSurface 등록. 내장 에이전트(M4)와 MCP 서버가 같은 레지스트리를 본다.
@@ -35,6 +36,7 @@ export function registerAllTools(): void {
   registerReadConsoleMessagesTool();
   registerDownloadTools();
   registerAskTools();
+  registerUndoTools();
 }
 
 /** 테스트가 깨끗한 레지스트리에서 다시 시작할 때. */

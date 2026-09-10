@@ -142,6 +142,19 @@ const navigateHistory: Tool<HistoryArgs, { tabId: number; url: string; moved: bo
   },
   sideEffect: 'navigate',
   irreversible: false,
+  inverse(ctx, args, result) {
+    // 반대 방향으로 한 걸음. 실제로 움직이지 않았으면 되돌릴 것도 없다.
+    if (!result.moved) return null;
+
+    return {
+      tool: 'navigate_history',
+      describe: args.direction === 'back' ? '앞으로' : '뒤로',
+      invert: async () => {
+        if (args.direction === 'back') ctx.tabs.goForward(result.tabId);
+        else ctx.tabs.goBack(result.tabId);
+      }
+    };
+  },
   async run(ctx, args) {
     const tabId = requireTabId(ctx, args.tabId);
     const wc = requireWebContents(ctx, tabId);

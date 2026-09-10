@@ -4,6 +4,11 @@ import type { TabManager } from '../browser/TabManager';
 import type { Downloads } from '../browser/Downloads';
 import type { Overlay } from '../cobrowse/Overlay';
 import type { Handoff } from '../control/Handoff';
+import type { Approval } from '../control/Approval';
+import type { Policy, PolicyVerdict } from '../control/Policy';
+import type { UndoManager } from '../persistence/UndoManager';
+import type { AuditLog } from '../audit/AuditLog';
+import { maskDeep } from '../control/Masking';
 
 /**
  * ToolSurface — AI 가 브라우저를 다루는 단일 도구 세트.
@@ -38,6 +43,21 @@ export interface ToolContext {
   askUser: (question: string, options: string[]) => Promise<{ answer: string }>;
   /** 업로드 파일 선택 등 파일 시스템 접근 루트. */
   downloadDir: string;
+
+  // ── M3 제어 계층 ──
+  policy: Policy;
+  approval: Approval;
+  undo: UndoManager;
+  audit: AuditLog;
+  /** 실행 단위. M4 에서 threadId 로 승격된다. 지금은 threadId 와 같은 값을 쓴다. */
+  runId: string;
+  /** 누가 부른 호출인가 — 감사 로그의 source */
+  source: string;
+  /**
+   * 조작 도구 실행 직후 스크린샷을 찍는다(마스킹 적용됨).
+   * 감사 로그가 단계별 화면을 갖도록 도구 밖에서 한 번에 처리한다.
+   */
+  captureStep: (tabId: number | null) => Promise<string | null>;
 }
 
 export interface Tool<Args = Record<string, unknown>, Result = unknown> {
@@ -60,10 +80,30 @@ export interface PausedResult {
   tabId: number | null;
 }
 
-export type ToolOutcome<T> = T | PausedResult;
+/**
+ * 정책이 막았을 때의 결과. 오류가 아니라 결과다 —
+ * 호출자가 "왜 막혔는지" 를 보고 다음 수를 정할 수 있어야 한다.
+ */
+export interface BlockedResult {
+  blocked_by_policy: true;
+  reason: string;
+  tool: string;
+  /** 사람이 거부했는가, 정책이 거부했는가 */
+  by: 'policy' | 'user';
+}
+
+export type ToolOutcome<T> = T | PausedResult | BlockedResult;
 
 export function isPaused<T>(value: ToolOutcome<T>): value is PausedResult {
   return typeof value === 'object' && value !== null && (value as PausedResult).paused === true;
+}
+
+export function isBlocked<T>(value: ToolOutcome<T>): value is BlockedResult {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as BlockedResult).blocked_by_policy === true
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -104,9 +144,12 @@ export class ToolError extends Error {
 /**
  * 도구 호출 진입점.
  *
- * 순서는 CLAUDE.md 계약 그대로: 스키마 검증 → Handoff(일시정지) 확인 → run →
- * inverse 등록(M3) → 감사 로그 → Overlay 이벤트.
- * M2 에서는 Policy 훅과 UndoManager 가 아직 없으므로 자리만 비워 둔다(OUT OF SCOPE).
+ * 순서는 CLAUDE.md 계약 그대로:
+ *   스키마 검증 → Handoff(일시정지) → Policy(거부 → 승인 → 마스킹) → run →
+ *   inverse 등록(UndoManager) → 스크린샷 → 감사 로그.
+ *
+ * 마스킹은 결과를 호출자에게 돌려주기 전에 적용한다. 감사 로그도 같은 규칙을 쓰므로
+ * 한쪽만 가려지는 일이 없다(GOAL-M3: 도구 결과·저장·스크린샷 3중 적용).
  */
 export async function callTool(
   ctx: ToolContext,
@@ -129,32 +172,191 @@ export async function callTool(
   }
 
   // 사람이 개입했으면 진행 중인 도구 호출은 여기서 멈춘다.
-  const paused = ctx.handoff.pausedState(ctx.threadId);
+  const paused = ctx.handoff.pausedState(ctx.runId);
   if (paused) return paused;
 
   const started = Date.now();
+  const target = describeTarget(ctx, tool, args);
+
+  // ── Policy 훅: 거부 → 승인 필요 여부 → (마스킹은 도구 결과에서) ──
+  const verdict = ctx.policy.evaluate({
+    tool: name,
+    host: target.host,
+    ...(target.text === null ? {} : { targetText: target.text }),
+    irreversible: tool.irreversible,
+    sideEffect: effectiveSideEffect(tool, args),
+    runId: ctx.runId
+  });
+
+  let grantScope: string | null = null;
+
+  if (verdict.decision === 'deny') {
+    audit(ctx, name, args, target, null, started, verdict, null, `정책 거부: ${verdict.reason}`);
+    return { blocked_by_policy: true, reason: verdict.reason, tool: name, by: 'policy' };
+  }
+
+  if (verdict.decision === 'ask') {
+    const answer = await ctx.approval.request({
+      subject: verdict.subject,
+      tool: name,
+      action: verdict.action,
+      host: target.host ?? '(no-host)',
+      reason: verdict.reason,
+      targetText: target.text,
+      irreversible: tool.irreversible,
+      runId: ctx.runId
+    });
+
+    if (!answer.granted) {
+      audit(ctx, name, args, target, null, started, verdict, null, `사용자 거부: ${verdict.reason}`);
+      return { blocked_by_policy: true, reason: verdict.reason, tool: name, by: 'user' };
+    }
+
+    grantScope = answer.scope;
+    ctx.policy.recordGrant(verdict.subject, target.host ?? '(no-host)', answer.scope, ctx.runId);
+
+    // 사이트 첫 접근을 허용했으면 이번 실행에서는 다시 묻지 않는다.
+    if (verdict.action === 'site_first_visit' && target.host) ctx.policy.markVisited(target.host);
+  }
+
   try {
     const result = await (tool as unknown as Tool<Record<string, unknown>, unknown>).run(ctx, args);
-    logCall(name, args, started, null);
-    return result;
+
+    // 되돌릴 수 있는 도구는 역연산을 스택에 쌓는다.
+    if (!tool.irreversible && tool.inverse) {
+      const entry = (
+        tool as unknown as Tool<Record<string, unknown>, unknown>
+      ).inverse?.(ctx, args, result);
+      if (entry) ctx.undo.push(ctx.runId, entry);
+    }
+
+    // 제출·상신이 일어났으면 그 이전 입력은 되돌릴 수 없다.
+    if (verdict.decision === 'ask' && (verdict.action === 'write_click' || verdict.action === 'form_submit')) {
+      ctx.undo.seal(ctx.runId, `${target.text ?? verdict.action} 실행 후에는 되돌릴 수 없습니다`);
+    }
+
+    // 조작 도구는 실행 직후 화면을 남긴다.
+    const effect = effectiveSideEffect(tool, args);
+    const shot =
+      effect === 'input' || effect === 'write' ? await ctx.captureStep(target.tabId) : null;
+
+    // 결과를 돌려주기 전에 개인정보를 지운다. 이미지(base64)는 픽셀 단위로 이미 가려져 있다.
+    const masked = maskDeep(result, { skipKeys: ['image'] });
+
+    audit(ctx, name, args, target, masked.value, started, verdict, grantScope, null, shot, masked.review);
+    return masked.value;
   } catch (error) {
-    logCall(name, args, started, error as Error);
+    audit(ctx, name, args, target, null, started, verdict, grantScope, (error as Error).message);
     throw error;
   }
 }
 
 /**
- * 감사 로그. M3 의 AuditLog(JSONL) 로 옮기기 전까지는 콘솔에 남긴다.
- * 인자에 자격증명이 섞일 수 있으므로 값은 길이만 남기고 내용은 적지 않는다.
+ * 실제 부수효과.
+ *
+ * `computer` 는 클릭·입력과 스크린샷을 한 도구에 담고 있어 선언된 sideEffect('input')가
+ * 화면을 보는 호출에도 붙는다. 그대로 두면 화면 한 번 보는 데 승인을 요구하게 된다.
  */
-function logCall(name: string, args: Record<string, unknown>, started: number, error: Error | null): void {
-  const shape = Object.entries(args)
-    .map(([key, value]) => `${key}=${typeof value === 'string' ? `str(${value.length})` : typeof value}`)
-    .join(' ');
-  const ms = Date.now() - started;
+function effectiveSideEffect(tool: Tool<never, never>, args: Record<string, unknown>): SideEffect {
+  if (tool.name === 'computer') {
+    const action = args['action'];
+    if (action === 'screenshot' || action === 'zoom' || action === 'hover') return 'read';
+  }
+  return tool.sideEffect;
+}
 
-  if (error) console.warn(`[tool] ${name} 실패 ${ms}ms ${shape} :: ${error.message}`);
-  else console.warn(`[tool] ${name} ok ${ms}ms ${shape}`);
+interface TargetInfo {
+  tabId: number | null;
+  host: string | null;
+  url: string | null;
+  /** 클릭 대상 문구 — Policy 의 쓰기 키워드 판정 근거 */
+  text: string | null;
+}
+
+/**
+ * 무엇을 대상으로 하는 호출인지 정리한다.
+ * `ref` 로 지목된 요소의 문구를 꺼내는 것이 핵심이다 — "상신" 버튼을 누르려는지 알아야
+ * Policy 가 승인을 요구할 수 있다.
+ */
+function describeTarget(
+  ctx: ToolContext,
+  tool: Tool<never, never>,
+  args: Record<string, unknown>
+): TargetInfo {
+  const tabId =
+    typeof args['tabId'] === 'number' ? (args['tabId'] as number) : ctx.tabs.activeTabId;
+
+  // navigate 류는 "가려는 곳" 이 판정 대상이다. 현재 탭이 아니라 인자의 주소를 본다.
+  const argUrl = typeof args['url'] === 'string' ? (args['url'] as string) : null;
+  const wc = tabId === null ? null : ctx.tabs.getWebContents(tabId);
+  const currentUrl = wc ? wc.getURL() : null;
+  const url = argUrl ?? currentUrl;
+
+  let text: string | null = null;
+  const ref = typeof args['ref'] === 'string' ? (args['ref'] as string) : null;
+
+  if (ref && wc) {
+    text = refLabelOf(wc, ref);
+  }
+  if (!text && typeof args['text'] === 'string') text = args['text'] as string;
+  if (!text && tool.name === 'javascript' && typeof args['code'] === 'string') {
+    text = (args['code'] as string).slice(0, 80);
+  }
+
+  return { tabId, host: hostOf(url), url, text };
+}
+
+/** PageReader 의 ref 표에서 문구를 꺼낸다. 순환 import 를 피해 지연 로드한다. */
+function refLabelOf(wc: Electron.WebContents, ref: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const reader = require('../cdp/PageReader') as { refLabel: (wc: unknown, ref: string) => string };
+    return reader.refLabel(wc, ref);
+  } catch {
+    return '';
+  }
+}
+
+function hostOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 감사 로그 한 줄. 인자·결과 마스킹은 AuditLog 안에서 한다. */
+function audit(
+  ctx: ToolContext,
+  tool: string,
+  args: Record<string, unknown>,
+  target: TargetInfo,
+  result: unknown,
+  started: number,
+  verdict: PolicyVerdict,
+  grantScope: string | null,
+  error: string | null,
+  screenshotPath: string | null = null,
+  review = false
+): void {
+  ctx.audit.append({
+    review,
+    ts: started,
+    source: ctx.source,
+    runId: ctx.runId,
+    tabId: target.tabId,
+    url: target.url,
+    tool,
+    args,
+    targetText: target.text,
+    result,
+    durationMs: Date.now() - started,
+    screenshotPath,
+    policyDecision: verdict.decision,
+    grantScope,
+    error
+  });
 }
 
 // ─────────────────────────────────────────────────────────────

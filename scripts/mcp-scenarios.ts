@@ -27,6 +27,20 @@ const TOKEN = 'helm-dev-token-m2';
 let app: ElectronApplication;
 let client: Client;
 
+/**
+ * 테스트 프로필에 정책을 미리 심는다.
+ * Policy.load 는 userData/policy.json 이 없을 때만 seed 하므로, 먼저 써 두면 그것이 쓰인다.
+ */
+function seedPolicy(profileDir: string, policy: Record<string, unknown>): void {
+  fs.mkdirSync(profileDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(profileDir, 'policy.json'),
+    `${JSON.stringify(policy, null, 2)}\n`,
+    'utf-8'
+  );
+}
+
+
 /** 시나리오별 실측값. REPORT.md 작성 근거로 남긴다. */
 const summary: Record<string, unknown> = {};
 
@@ -114,6 +128,21 @@ test.beforeAll(async () => {
   fs.rmSync(DOWNLOAD_DIR, { recursive: true, force: true });
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
   fs.mkdirSync(ARTIFACTS, { recursive: true });
+
+  // M2 시나리오는 도구 표면을 본다. 포털 A·B·C 는 허용하고 다운로드는 미리 승인해 둔다 —
+  // 정책 판정 자체는 test:policy 와 M3 시나리오 D·F 가 검증한다.
+  seedPolicy(PROFILE, {
+    locked: false,
+    sites: { default: 'allow', hosts: {} },
+    deny: { hosts: [], tools: [] },
+    tools: {},
+    grants: [
+      { subject: 'download', host: 'portal-c', scope: 'domain', grantedAt: 0 },
+      { subject: 'javascript', host: 'portal-b', scope: 'domain', grantedAt: 0 },
+      { subject: 'javascript', host: 'portal-a', scope: 'domain', grantedAt: 0 }
+    ],
+    retentionDays: 30
+  });
 
   app = await electron.launch({
     args: [ROOT],

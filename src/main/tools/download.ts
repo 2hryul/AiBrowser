@@ -145,6 +145,24 @@ const uploadTool: Tool<UploadArgs, { tabId: number; ref: string; fileName: strin
   },
   sideEffect: 'input',
   irreversible: false,
+  inverse(ctx, args, result) {
+    return {
+      tool: 'upload',
+      describe: `${result.fileName} 선택 해제`,
+      invert: async () => {
+        const wc = ctx.tabs.getWebContents(result.tabId);
+        if (!wc) return;
+
+        const { resolveRef } = await import('../cdp/PageReader');
+        const { send } = await import('../cdp/Debugger');
+        const entry = resolveRef(wc, args.ref);
+        if (!entry) return;
+
+        // 빈 목록으로 되돌린다 — 파일 선택 전 상태와 같다.
+        await send(wc, 'DOM.setFileInputFiles', { files: [], backendNodeId: entry.backendNodeId });
+      }
+    };
+  },
   async run(ctx, args) {
     const tabId = requireTabId(ctx, args.tabId);
     const wc = requireWebContents(ctx, tabId);

@@ -1,0 +1,21 @@
+{
+  "locked": true,
+  "sites": {
+    "default": "ask",
+    "hosts": {
+      "portal.example.co.kr": "allow",
+      "hr.example.co.kr": "ask",
+      "pay.example.co.kr": "deny"
+    }
+  },
+  "deny": {
+    "hosts": ["pay.example.co.kr"],
+    "tools": ["javascript"]
+  },
+  "tools": {
+    "javascript": "deny",
+    "download": "ask"
+  },
+  "grants": [],
+  "retentionDays": 90
+}

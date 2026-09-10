@@ -3,6 +3,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import helmRules from './eslint-rules/no-credential-files.mjs';
+import toolRules from './eslint-rules/require-tool-inverse.mjs';
 
 export default tseslint.config(
   {
@@ -57,6 +58,14 @@ export default tseslint.config(
     plugins: { helm: helmRules },
     rules: {
       'helm/no-credential-files': 'error'
+    }
+  },
+  {
+    // 도구 계약: 상태를 바꾸는 도구가 irreversible: false 이면 inverse 가 필수다(CLAUDE.md).
+    files: ['src/main/tools/**/*.ts'],
+    plugins: { helmTools: toolRules },
+    rules: {
+      'helmTools/require-tool-inverse': 'error'
     }
   },
   {

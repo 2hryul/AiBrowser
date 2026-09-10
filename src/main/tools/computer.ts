@@ -13,6 +13,7 @@ import {
   type Target
 } from '../cdp/Actor';
 import { readPage } from '../cdp/PageReader';
+import { collectMaskBoxes, type PiiBox } from '../control/Masking';
 import { registerTool, requireTabId, requireWebContents, TAB_ID_PROPERTY, ToolError, type Tool } from './index';
 
 /**
@@ -55,11 +56,13 @@ interface Args {
 interface Result {
   tabId: number;
   action: Action;
+  /** action==='type' 일 때 입력 전 값 — 되돌리기에 쓴다. */
+  previousValue?: string | null;
   /** screenshot/zoom 일 때 PNG base64 */
   image?: string;
   width?: number;
   height?: number;
-  /** 가려진 비밀번호 영역 수 */
+  /** 가려진 영역 수(비밀번호 + 개인정보) */
   maskedRegions?: number;
   point?: Point;
   ok: boolean;
@@ -67,23 +70,16 @@ interface Result {
 
 const SCROLL_STEP = 120;
 
-/** 비밀번호 입력의 화면 사각형. 스크린샷에서 이 영역을 덮는다. */
-async function passwordBoxes(wc: WebContents): Promise<{ x: number; y: number; width: number; height: number }[]> {
-  try {
-    const boxes = (await wc.executeJavaScript(
-      `Array.from(document.querySelectorAll('input[type=password]')).map((el) => {
-         const r = el.getBoundingClientRect();
-         return { x: r.x, y: r.y, width: r.width, height: r.height };
-       }).filter((r) => r.width > 0 && r.height > 0)`
-    )) as { x: number; y: number; width: number; height: number }[];
-    return Array.isArray(boxes) ? boxes : [];
-  } catch {
-    return [];
-  }
+/**
+ * 스크린샷에서 가릴 사각형.
+ * 비밀번호 입력과 개인정보(사번·전화·이메일) 텍스트를 모두 포함한다 — 규칙은 Masking 이 갖는다.
+ */
+async function maskTargets(wc: WebContents): Promise<PiiBox[]> {
+  return collectMaskBoxes(wc);
 }
 
 /**
- * 캡처 이미지에서 비밀번호 영역을 지운다.
+ * 캡처 이미지에서 비밀번호·개인정보 영역을 지운다.
  *
  * 블러 대신 단색으로 덮는다 — 블러는 원본 정보가 남아 복원될 여지가 있고, 검증도 애매하다.
  * 픽셀 검사로 "가려졌음" 을 단언할 수 있는 편이 낫다.
@@ -93,7 +89,7 @@ function maskBitmap(
   width: number,
   height: number,
   scaleFactor: number,
-  boxes: { x: number; y: number; width: number; height: number }[]
+  boxes: readonly PiiBox[]
 ): number {
   let masked = 0;
 
@@ -120,9 +116,15 @@ function maskBitmap(
   return masked;
 }
 
-async function capture(
+/**
+ * 마스킹이 적용된 화면 캡처.
+ *
+ * 감사 로그의 단계 스크린샷도 이 함수를 쓴다 — 도구 호출을 한 번 더 거치면 Policy 훅에 걸려
+ * 승인을 기다리다 교착된다(스크린샷 하나 때문에 사람에게 묻는 것도 이상하다).
+ */
+export async function captureMasked(
   wc: WebContents,
-  options: { region?: [number, number, number, number]; scale?: number }
+  options: { region?: [number, number, number, number]; scale?: number } = {}
 ): Promise<{ image: string; width: number; height: number; maskedRegions: number }> {
   const rect = options.region
     ? {
@@ -144,7 +146,7 @@ async function capture(
     ? size.width / Math.max(1, rect.width)
     : size.width / Math.max(1, viewportWidth);
 
-  const boxes = (await passwordBoxes(wc)).map((box) =>
+  const boxes = (await maskTargets(wc)).map((box) =>
     rect ? { ...box, x: box.x - rect.x, y: box.y - rect.y } : box
   );
   const maskedRegions = maskBitmap(bitmap, size.width, size.height, scaleFactor, boxes);
@@ -181,7 +183,7 @@ const computer: Tool<Args, Result> = {
   description:
     '마우스·키보드로 페이지를 조작하고 화면을 캡처한다. 대상은 read_page/find 가 준 ref 또는 ' +
     '좌표로 지정한다. 조작 직전에 화면에 대상 표시(하이라이트·커서)가 나타난다. ' +
-    '스크린샷에서 비밀번호 입력 영역은 가려진다.',
+    '스크린샷에서 비밀번호 입력과 개인정보(사번·전화·이메일) 영역은 가려진다.',
   input: {
     type: 'object',
     properties: {
@@ -235,12 +237,35 @@ const computer: Tool<Args, Result> = {
   },
   sideEffect: 'input',
   irreversible: false,
+  /**
+   * `type` 만 되돌릴 수 있다 — 입력 전 값을 복원한다(제출 전 한정).
+   * 클릭·스크롤·키는 되돌릴 대상이 없어 null 을 돌려준다. 쓰기 클릭은 Policy 가 승인으로 막고,
+   * 승인이 나면 그 이전 입력이 봉인된다(UndoManager.seal).
+   */
+  inverse(ctx, args, result) {
+    if (args.action !== 'type' || typeof result.previousValue !== 'string') return null;
+    if (!args.ref) return null;
+
+    const previous = result.previousValue;
+    const ref = args.ref;
+
+    return {
+      tool: 'computer',
+      describe: `${ref} 입력 되돌리기`,
+      invert: async () => {
+        const wc = ctx.tabs.getWebContents(result.tabId);
+        if (!wc) return;
+        const { setFormValue } = await import('../cdp/Actor');
+        await setFormValue(wc, ref, previous);
+      }
+    };
+  },
   async run(ctx, args) {
     const tabId = requireTabId(ctx, args.tabId);
     const wc = requireWebContents(ctx, tabId);
 
     if (args.action === 'screenshot' || args.action === 'zoom') {
-      const shot = await capture(wc, {
+      const shot = await captureMasked(wc, {
         ...(args.region ? { region: args.region } : {}),
         ...(args.scale ? { scale: args.scale } : {})
       });
@@ -283,9 +308,13 @@ const computer: Tool<Args, Result> = {
             throw new ToolError('missing_text', '[computer] type 에는 text 가 필요합니다');
           }
           const { point } = await resolveTarget(wc, target);
+
+          // 되돌리기를 위해 입력 전 값을 먼저 읽는다.
+          const previousValue = args.ref ? await readFieldValue(wc, args.ref) : null;
+
           await showTarget(point);
           await typeText(wc, target, args.text);
-          return { tabId, action: args.action, ok: true, point };
+          return { tabId, action: args.action, ok: true, point, previousValue };
         }
 
         case 'key': {
@@ -327,6 +356,38 @@ const computer: Tool<Args, Result> = {
     });
   }
 };
+
+/**
+ * 입력 필드의 현재 값. 되돌리기 전 상태를 남기기 위해 읽는다.
+ * contenteditable 도 함께 다룬다 — 사내 결재 시스템의 본문 편집기가 그 모양이다.
+ */
+async function readFieldValue(wc: WebContents, ref: string): Promise<string | null> {
+  try {
+    const { resolveRef } = await import('../cdp/PageReader');
+    const { send } = await import('../cdp/Debugger');
+    const entry = resolveRef(wc, ref);
+    if (!entry) return null;
+
+    const resolved = await send<{ object: { objectId?: string } }>(wc, 'DOM.resolveNode', {
+      backendNodeId: entry.backendNodeId
+    });
+    if (!resolved.object.objectId) return null;
+
+    const result = await send<{ result?: { value?: unknown } }>(wc, 'Runtime.callFunctionOn', {
+      objectId: resolved.object.objectId,
+      returnByValue: true,
+      functionDeclaration: `function () {
+        if (this.isContentEditable) return this.innerText;
+        return this.value === undefined ? null : String(this.value);
+      }`
+    });
+
+    const value = result.result?.value;
+    return typeof value === 'string' ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 /** 스크롤 대상이 ref 로 주어지면 그 요소 위에서 굴린다(가상 스크롤 컨테이너). */
 async function resolveScrollPoint(wc: WebContents, ref?: string): Promise<Point | null> {

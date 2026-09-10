@@ -40,10 +40,17 @@ export interface ReadPageResult {
   frames: number;
 }
 
-/** ref → backendNodeId 매핑. 탭 단위로 보관한다. */
+/** ref → 노드 정보 매핑. 탭 단위로 보관한다. */
+export interface RefEntry {
+  backendNodeId: number;
+  /** 접근성 이름. Policy 가 "무엇을 누르려는가" 를 판단하는 근거다(쓰기 키워드). */
+  name: string;
+  role: string;
+  sessionId?: string;
+}
+
 interface RefTable {
-  /** ref 문자열 → { backendNodeId, frameSessionId } */
-  entries: Map<string, { backendNodeId: number; sessionId?: string }>;
+  entries: Map<string, RefEntry>;
 }
 
 const refTables = new Map<number, RefTable>();
@@ -56,11 +63,13 @@ export function refTableFor(wc: WebContents): RefTable {
   return created;
 }
 
-export function resolveRef(
-  wc: WebContents,
-  ref: string
-): { backendNodeId: number; sessionId?: string } | null {
+export function resolveRef(wc: WebContents, ref: string): RefEntry | null {
   return refTableFor(wc).entries.get(ref) ?? null;
+}
+
+/** ref 가 가리키는 요소의 문구. Policy 훅이 쓰기 키워드를 판정할 때 쓴다. */
+export function refLabel(wc: WebContents, ref: string): string {
+  return refTableFor(wc).entries.get(ref)?.name ?? '';
 }
 
 interface RawAxNode {
@@ -220,7 +229,7 @@ export async function readPage(
         const ref = `ref_${counter}`;
 
         if (node.backendDOMNodeId !== undefined) {
-          table.entries.set(ref, { backendNodeId: node.backendDOMNodeId });
+          table.entries.set(ref, { backendNodeId: node.backendDOMNodeId, name, role });
         }
 
         // 비밀번호 입력이거나, 값이 불릿뿐이면(이미 가려진 값) 표기를 *** 로 통일한다.

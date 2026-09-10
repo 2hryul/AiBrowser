@@ -16,7 +16,8 @@
     "test:unit": "vitest run",
     "fixtures": "node scripts/make-reader-fixtures.mjs && node scripts/make-profile-fixtures.mjs && node scripts/make-download-fixture.mjs && node scripts/make-portal-fixtures.mjs",
     "test:tools": "electron-vite build && playwright test scripts/tool-tests.ts",
-    "test:mcp": "electron-vite build && playwright test scripts/mcp-scenarios.ts"
+    "test:mcp": "electron-vite build && playwright test scripts/mcp-scenarios.ts",
+    "test:policy": "vitest run tests/policy.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -26,6 +27,7 @@
     "linkedom": "^0.18.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "zod": "^4.6.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
