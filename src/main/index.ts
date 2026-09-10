@@ -1139,6 +1139,19 @@ void app.whenReady().then(async () => {
         const { toolNames } = await import('./tools/register');
         return toolNames();
       },
+      /** 모의 포털 내부 상태 — "자동 상신 0회"·PII 원본 대조의 판정 근거 */
+      submittedDocs: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        return portalTestHooks.submittedDocs();
+      },
+      resetSubmitted: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        portalTestHooks.resetSubmitted();
+      },
+      piiSamples: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        return portalTestHooks.piiSamples();
+      },
       pendingPrompts: () => [...pendingPrompts.values()].map((entry) => entry.prompt),
       answerPrompt: (id: string, answer: string) => {
         const pending = pendingPrompts.get(id);

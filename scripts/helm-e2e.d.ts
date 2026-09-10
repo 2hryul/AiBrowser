@@ -50,6 +50,91 @@ interface HelmPendingPrompt {
   host?: string;
 }
 
+// ── M3 제어 계층 ──
+
+interface HelmApprovalRequest {
+  id: string;
+  subject: string;
+  tool: string;
+  action:
+    | 'write_click'
+    | 'form_submit'
+    | 'download'
+    | 'upload'
+    | 'javascript'
+    | 'site_first_visit'
+    | 'tool';
+  host: string;
+  reason: string;
+  targetText: string | null;
+  irreversible: boolean;
+  runId: string;
+  createdAt: number;
+}
+
+interface HelmUndoRecord {
+  id: string;
+  runId: string;
+  tool: string;
+  describe: string;
+  createdAt: number;
+  undone: boolean;
+  sealed: boolean;
+  sealedReason: string | null;
+}
+
+interface HelmAuditEntry {
+  ts: number;
+  source: string;
+  runId: string;
+  tabId: number | null;
+  url: string | null;
+  tool: string;
+  args: unknown;
+  targetText: string | null;
+  result: unknown;
+  durationMs: number;
+  screenshotPath: string | null;
+  policyDecision: 'allow' | 'deny' | 'ask';
+  grantScope: string | null;
+  review: boolean;
+  error: string | null;
+}
+
+interface HelmPolicyHook {
+  snapshot: () => {
+    locked: boolean;
+    sites: { default: string; hosts: Record<string, string> };
+    deny: { hosts: string[]; tools: string[] };
+    tools: Record<string, string>;
+    grants: { subject: string; host: string; scope: string; threadId?: string; grantedAt: number }[];
+    retentionDays: number;
+  };
+  isLocked: () => boolean;
+  listGrants: () => { subject: string; host: string; scope: string; grantedAt: number }[];
+  setDeny: (hosts: string[], tools: string[]) => boolean;
+  setSiteDecision: (host: string, decision: 'allow' | 'ask' | 'deny') => boolean;
+  markVisited: (host: string) => void;
+  hasVisited: (host: string) => boolean;
+}
+
+interface HelmUndoHook {
+  list: (runId: string) => HelmUndoRecord[];
+  undo: (
+    runId: string,
+    id?: string
+  ) => Promise<
+    { ok: true; record: HelmUndoRecord } | { ok: false; reason: string; message: string }
+  >;
+  seal: (runId: string, reason: string) => number;
+  clear: (runId: string) => void;
+}
+
+interface HelmAuditHook {
+  file: string;
+  read: () => HelmAuditEntry[];
+}
+
 interface HelmAiState {
   threadId: string;
   status: 'idle' | 'running' | 'paused' | 'done';
@@ -132,6 +217,17 @@ interface HelmE2EHook {
   toolNames: () => Promise<string[]>;
   pendingPrompts: () => HelmPendingPrompt[];
   answerPrompt: (id: string, answer: string) => boolean;
+
+  // M3
+  getPolicy: () => HelmPolicyHook | null;
+  getUndo: () => HelmUndoHook | null;
+  getAudit: () => HelmAuditHook | null;
+  runId: string;
+  approvalQueue: () => HelmApprovalRequest[];
+  answerApproval: (id: string, scope: 'once' | 'thread' | 'domain' | null) => boolean;
+  submittedDocs: () => Promise<string[]>;
+  resetSubmitted: () => Promise<void>;
+  piiSamples: () => Promise<{ employeeNo: string; phone: string; email: string }[]>;
 }
 
 declare global {

@@ -394,37 +394,71 @@ test('[find] 규칙 5종이 각각 동작한다', async () => {
   expect(nothing.matches).toEqual([]);
 });
 
-test('[승인] request_access·ask_user 가 사람에게 묻고 답을 받는다', async () => {
-  // 도구는 사람 답을 기다리므로, 답을 넣어 주는 쪽을 먼저 예약한다.
+test('[승인] request_access 는 승인 3단계를 받아 정책에 남긴다', async () => {
+  // M3: 도메인 접근 허락은 ask_user 프롬프트가 아니라 승인 큐를 지난다.
   const answering = app.evaluate(async () => {
     const hook = globalThis.__helm;
     if (!hook) throw new Error('훅 없음');
 
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      const pending = hook.pendingPrompts();
-      const target = pending.find((prompt) => prompt.kind === 'request_access');
+      const target = hook.approvalQueue().find((item) => item.tool === 'request_access');
       if (target) {
-        hook.answerPrompt(target.id, '허용');
-        return { question: target.question, options: target.options };
+        hook.answerApproval(target.id, 'domain');
+        return { host: target.host, action: target.action, reason: target.reason };
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     return null;
   });
 
-  const granted = await call<{ granted: boolean; host: string; scope: string }>('request_access', {
-    host: 'portal-x.example.co.kr',
-    reason: '공지 목록을 읽기 위해'
+  const granted = await call<{ granted: boolean; host: string; scope: string | null }>(
+    'request_access',
+    { host: 'portal-x.example.co.kr', reason: '공지 목록을 읽기 위해' }
+  );
+
+  const request = await answering;
+  expect(request, '승인 큐에 올라오지 않았습니다').not.toBeNull();
+  expect(request?.host).toBe('portal-x.example.co.kr');
+  expect(request?.action).toBe('site_first_visit');
+  expect(granted.granted).toBe(true);
+  expect(granted.scope).toBe('domain');
+
+  // 승인이 정책 파일에 기록되어야 한다 — 회수 대상이 되려면 남아 있어야 한다.
+  const grants = await app.evaluate(() => {
+    const hook = globalThis.__helm;
+    return hook?.getPolicy()?.listGrants() ?? [];
+  });
+  expect(
+    grants.some((grant) => grant.host === 'portal-x.example.co.kr' && grant.scope === 'domain'),
+    '승인이 grants 에 기록되지 않았습니다'
+  ).toBe(true);
+
+  // 거부하면 granted=false 로 그대로 전달된다.
+  const denying = app.evaluate(async () => {
+    const hook = globalThis.__helm;
+    if (!hook) return false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const target = hook.approvalQueue().find((item) => item.host === 'portal-y.example.co.kr');
+      if (target) {
+        hook.answerApproval(target.id, null);
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
   });
 
-  const prompt = await answering;
-  expect(prompt, '사람에게 묻지 않았습니다').not.toBeNull();
-  expect(prompt?.question).toContain('portal-x.example.co.kr');
-  expect(prompt?.options).toEqual(['허용', '거부']);
-  expect(granted.granted).toBe(true);
-  expect(granted.scope).toBe('once');
+  const refused = await call<{ granted: boolean; scope: string | null }>('request_access', {
+    host: 'portal-y.example.co.kr',
+    reason: '알 수 없는 사이트'
+  });
 
-  // 거부도 그대로 전달된다.
+  expect(await denying).toBe(true);
+  expect(refused.granted).toBe(false);
+  expect(refused.scope).toBeNull();
+});
+
+test('[승인] ask_user 가 사람에게 묻고 답을 받는다', async () => {
   const denying = app.evaluate(async () => {
     const hook = globalThis.__helm;
     if (!hook) return false;

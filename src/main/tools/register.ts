@@ -11,6 +11,7 @@ import { registerReadNetworkRequestsTool } from './read_network_requests';
 import { registerReadConsoleMessagesTool } from './read_console_messages';
 import { registerDownloadTools } from './download';
 import { registerAskTools } from './ask_user';
+import { registerRequestAccessTool } from './request_access';
 import { registerUndoTools } from './undo';
 
 /**
@@ -36,6 +37,7 @@ export function registerAllTools(): void {
   registerReadConsoleMessagesTool();
   registerDownloadTools();
   registerAskTools();
+  registerRequestAccessTool();
   registerUndoTools();
 }
 
