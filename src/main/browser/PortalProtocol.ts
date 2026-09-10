@@ -576,6 +576,17 @@ function portalDTeam(team: string): string | null {
   );
 }
 
+/**
+ * 금액 표기. 천 단위 구분 쉼표를 넣는다.
+ *
+ * 사내 결재 화면이 실제로 이렇게 보이기도 하지만, 여기서는 이유가 하나 더 있다:
+ * 사번 탐지 패턴(독립된 7자리 숫자)이 `1200000` 같은 금액을 사번으로 오인한다.
+ * 패턴만으로 둘을 구분할 방법은 없다 — 이 한계는 artifacts/m3/REPORT.md 에 적었다.
+ */
+function won(value: number): string {
+  return value.toLocaleString('ko-KR');
+}
+
 // ─────────────────────────────────────────────────────────────
 // 포털 F — 전자결재형 (POST 검색 · contenteditable · 상신)
 // ─────────────────────────────────────────────────────────────
@@ -587,7 +598,7 @@ function portalFSearch(query: string, results: ApprovalDoc[]): string {
         <td>${esc(doc.id)}</td>
         <td><a href="app://portal-f/doc?id=${encodeURIComponent(doc.id)}">${esc(doc.title)}</a></td>
         <td>${esc(doc.vendor)}</td>
-        <td class="doc-amount">${doc.amount}</td>
+        <td class="doc-amount">${won(doc.amount)}</td>
         <td class="doc-status">${esc(submitted.has(doc.id) ? '상신' : doc.status)}</td>
       </tr>`
     )
@@ -620,7 +631,7 @@ function portalFDoc(doc: ApprovalDoc): string {
        <table>
          <tr><th>문서번호</th><td id="doc-id">${esc(doc.id)}</td></tr>
          <tr><th>공급사</th><td id="doc-vendor">${esc(doc.vendor)}</td></tr>
-         <tr><th>금액</th><td id="doc-amount">${doc.amount}</td></tr>
+         <tr><th>금액</th><td id="doc-amount">${won(doc.amount)}</td></tr>
          <tr><th>상태</th><td id="doc-status">${esc(submitted.has(doc.id) ? '상신' : doc.status)}</td></tr>
        </table>
        <p><a href="app://portal-f/search">목록으로</a></p>
@@ -685,7 +696,7 @@ function portalBillingIndex(): string {
     (row) => `<tr data-billing-doc="${esc(row.docId)}">
         <td>${esc(row.docId)}</td>
         <td>${esc(row.period)}</td>
-        <td class="billed-amount">${row.billedAmount}</td>
+        <td class="billed-amount">${won(row.billedAmount)}</td>
       </tr>`
   ).join('\n');
 

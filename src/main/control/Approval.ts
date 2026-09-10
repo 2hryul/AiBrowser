@@ -41,9 +41,21 @@ interface Pending {
   resolve: (answer: ApprovalAnswer) => void;
 }
 
+/** 허용된 승인의 기록 — 감사 로그가 "누가 무엇을 허락했는지" 를 빠뜨리지 않게 한다. */
+export interface GrantedApproval {
+  scope: GrantScope;
+  subject: string;
+  at: number;
+}
+
 export class Approval {
   private readonly events: ApprovalEvents;
   private readonly pending = new Map<string, Pending>();
+  /**
+   * 실행 단위별 허용 기록. 도구가 스스로 승인을 받는 경우(request_access)에도
+   * callTool 이 감사 로그에 범위를 적을 수 있어야 한다.
+   */
+  private readonly granted = new Map<string, GrantedApproval[]>();
   private counter = 0;
 
   constructor(events: ApprovalEvents) {
@@ -72,9 +84,27 @@ export class Approval {
     if (!entry) return false;
 
     this.pending.delete(id);
+
+    if (answer.granted) {
+      const list = this.granted.get(entry.request.runId) ?? [];
+      list.push({ scope: answer.scope, subject: entry.request.subject, at: Date.now() });
+      this.granted.set(entry.request.runId, list);
+    }
+
     entry.resolve(answer);
     this.events.onQueueChange(this.queue());
     return true;
+  }
+
+  /** 그 실행 단위에서 허용된 승인 수. callTool 이 run 전후로 비교한다. */
+  grantedCount(runId: string): number {
+    return this.granted.get(runId)?.length ?? 0;
+  }
+
+  /** 가장 최근 허용 기록. */
+  lastGranted(runId: string): GrantedApproval | null {
+    const list = this.granted.get(runId);
+    return list && list.length > 0 ? (list[list.length - 1] ?? null) : null;
   }
 
   queue(): ApprovalRequest[] {

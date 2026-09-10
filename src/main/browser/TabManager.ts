@@ -31,6 +31,8 @@ interface ClosedTab {
   title: string;
   pinned: boolean;
   index: number;
+  /** 소유권까지 되살린다 — AI 가 닫은 탭을 되돌렸으면 다시 AI 탭이어야 한다. */
+  owner: TabOwner;
 }
 
 export interface TabManagerOptions {
@@ -272,7 +274,13 @@ export class TabManager {
     // 고정 탭은 닫기 버튼이 없다. IPC 로 직접 들어온 요청도 여기서 막는다.
     if (tab.pinned) return;
 
-    this.closed.push({ url: tab.lastUrl, title: tab.lastTitle, pinned: tab.pinned, index });
+    this.closed.push({
+      url: tab.lastUrl,
+      title: tab.lastTitle,
+      pinned: tab.pinned,
+      index,
+      owner: tab.owner
+    });
     if (this.closed.length > CLOSED_STACK_LIMIT) this.closed.shift();
 
     this.tabs.splice(index, 1);
@@ -303,7 +311,7 @@ export class TabManager {
     const snapshot = this.closed.pop();
     if (!snapshot) return null;
 
-    const id = this.createTab(snapshot.url);
+    const id = this.createTab(snapshot.url, snapshot.owner);
     const restored = this.tabs.find((t) => t.id === id);
     if (restored) {
       restored.pinned = snapshot.pinned;

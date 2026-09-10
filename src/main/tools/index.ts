@@ -9,6 +9,7 @@ import type { Policy, PolicyVerdict } from '../control/Policy';
 import type { UndoManager } from '../persistence/UndoManager';
 import type { AuditLog } from '../audit/AuditLog';
 import { maskDeep } from '../control/Masking';
+import { refLabel } from '../cdp/PageReader';
 
 /**
  * ToolSurface — AI 가 브라우저를 다루는 단일 도구 세트.
@@ -191,8 +192,15 @@ export async function callTool(
   let grantScope: string | null = null;
 
   if (verdict.decision === 'deny') {
-    audit(ctx, name, args, target, null, started, verdict, null, `정책 거부: ${verdict.reason}`);
-    return { blocked_by_policy: true, reason: verdict.reason, tool: name, by: 'policy' };
+    const blocked: BlockedResult = {
+      blocked_by_policy: true,
+      reason: verdict.reason,
+      tool: name,
+      by: 'policy'
+    };
+    // 막힌 결과를 그대로 로그에 남긴다 — 나중에 "왜 안 됐나" 를 로그만 보고 알 수 있어야 한다.
+    audit(ctx, name, args, target, blocked, started, verdict, null, `정책 거부: ${verdict.reason}`);
+    return blocked;
   }
 
   if (verdict.decision === 'ask') {
@@ -208,8 +216,14 @@ export async function callTool(
     });
 
     if (!answer.granted) {
-      audit(ctx, name, args, target, null, started, verdict, null, `사용자 거부: ${verdict.reason}`);
-      return { blocked_by_policy: true, reason: verdict.reason, tool: name, by: 'user' };
+      const blocked: BlockedResult = {
+        blocked_by_policy: true,
+        reason: verdict.reason,
+        tool: name,
+        by: 'user'
+      };
+      audit(ctx, name, args, target, blocked, started, verdict, null, `사용자 거부: ${verdict.reason}`);
+      return blocked;
     }
 
     grantScope = answer.scope;
@@ -219,8 +233,15 @@ export async function callTool(
     if (verdict.action === 'site_first_visit' && target.host) ctx.policy.markVisited(target.host);
   }
 
+  // 도구가 스스로 승인을 받는 경우(request_access)를 감사 로그에서 놓치지 않기 위한 기준선.
+  const grantedBefore = ctx.approval.grantedCount(ctx.runId);
+
   try {
     const result = await (tool as unknown as Tool<Record<string, unknown>, unknown>).run(ctx, args);
+
+    if (grantScope === null && ctx.approval.grantedCount(ctx.runId) > grantedBefore) {
+      grantScope = ctx.approval.lastGranted(ctx.runId)?.scope ?? null;
+    }
 
     // 되돌릴 수 있는 도구는 역연산을 스택에 쌓는다.
     if (!tool.irreversible && tool.inverse) {
@@ -296,25 +317,21 @@ function describeTarget(
   const ref = typeof args['ref'] === 'string' ? (args['ref'] as string) : null;
 
   if (ref && wc) {
-    text = refLabelOf(wc, ref);
+    text = refLabel(wc, ref);
   }
-  if (!text && typeof args['text'] === 'string') text = args['text'] as string;
+
+  /**
+   * 인자의 text 를 판정 근거로 쓰는 것은 "무엇을 누르려는가" 를 알 때만이다.
+   * `computer` 의 `type` 은 args.text 가 **입력할 내용**이라 여기 쓰면 안 된다 —
+   * 본문에 "청구액" 을 적었다는 이유로 쓰기 클릭 승인을 요구하게 된다(시나리오 F 실측).
+   */
+  const typing = tool.name === 'computer' && args['action'] === 'type';
+  if (!text && !typing && typeof args['text'] === 'string') text = args['text'] as string;
   if (!text && tool.name === 'javascript' && typeof args['code'] === 'string') {
     text = (args['code'] as string).slice(0, 80);
   }
 
   return { tabId, host: hostOf(url), url, text };
-}
-
-/** PageReader 의 ref 표에서 문구를 꺼낸다. 순환 import 를 피해 지연 로드한다. */
-function refLabelOf(wc: Electron.WebContents, ref: string): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const reader = require('../cdp/PageReader') as { refLabel: (wc: unknown, ref: string) => string };
-    return reader.refLabel(wc, ref);
-  } catch {
-    return '';
-  }
 }
 
 function hostOf(url: string | null): string | null {

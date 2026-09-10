@@ -31,6 +31,17 @@ export interface HandoffEvents {
   }) => void;
 }
 
+/** 격리 월드가 보낸 보고. 옛 형식(문자열)도 받아 준다. */
+function parseReport(payload: string | undefined): { kind: string; at: number } {
+  if (!payload) return { kind: 'mouse', at: Date.now() };
+  try {
+    const parsed = JSON.parse(payload) as { kind?: string; at?: number };
+    return { kind: parsed.kind ?? 'mouse', at: typeof parsed.at === 'number' ? parsed.at : Date.now() };
+  } catch {
+    return { kind: payload, at: Date.now() };
+  }
+}
+
 /** 사람 입력으로 치지 않는 키 — 단독 수식키는 무시한다. */
 const IGNORED_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'CapsLock']);
 
@@ -111,7 +122,9 @@ export class Handoff {
         if (window.__helmHandoffInstalled) return;
         window.__helmHandoffInstalled = true;
         const report = (kind) => {
-          try { ${BINDING}(kind); } catch (e) { /* 바인딩이 아직 없으면 무시 */ }
+          // 발생 시각을 함께 보낸다. 전달이 늦어도(특히 클릭이 페이지 이동을 일으킬 때)
+          // "그때 AI 가 조작 중이었나" 를 시각으로 판정할 수 있다.
+          try { ${BINDING}(JSON.stringify({ kind: kind, at: Date.now() })); } catch (e) { /* 바인딩이 아직 없으면 무시 */ }
         };
         window.addEventListener('mousedown', () => report('mousedown'), true);
         window.addEventListener('wheel', () => report('wheel'), { capture: true, passive: true });
@@ -123,9 +136,13 @@ export class Handoff {
       if (method !== 'Runtime.bindingCalled') return;
       const data = params as { name?: string; payload?: string };
       if (data.name !== BINDING) return;
-      // AI 자신의 CDP 입력은 격리 월드 리스너에도 잡힌다. 도구 실행 중이 아닐 때만 개입으로 본다.
-      if (this.acting) return;
-      this.pause(threadId, tabId, `사람이 페이지를 조작했습니다 (${data.payload ?? 'mouse'})`);
+
+      const report = parseReport(data.payload);
+      // AI 자신의 CDP 입력도 격리 월드 리스너에 잡힌다. 이벤트가 **발생한 시각**이
+      // 도구 조작 구간 안이면 우리 입력이다 — 전달이 늦게 와도 오인하지 않는다.
+      if (this.wasActingAt(report.at)) return;
+
+      this.pause(threadId, tabId, `사람이 페이지를 조작했습니다 (${report.kind})`);
     });
 
     const previous = this.detachers.get(tabId);
@@ -135,19 +152,45 @@ export class Handoff {
     });
   }
 
-  /** 도구가 CDP 입력을 보내는 동안은 자기 입력을 사람 개입으로 오인하지 않는다. */
-  private acting = false;
+  /**
+   * 도구가 CDP 입력을 보낸 구간. 자기 입력을 사람 개입으로 오인하지 않기 위한 기록이다.
+   *
+   * 단순 플래그로는 부족하다: 클릭이 페이지 이동을 일으키면 mousedown 보고가 새 문서 로드
+   * 뒤에 도착해 플래그가 이미 내려간 상태로 들어온다(시나리오 F 에서 실측). 그래서
+   * "언제 발생했는가" 를 구간과 비교한다.
+   */
+  private actingDepth = 0;
+  private actingSince = 0;
+  private readonly actingWindows: { from: number; to: number }[] = [];
+
+  /** 보고 전달 지연 여유. 이벤트 발생 시각이 조작 종료 직후면 우리 입력으로 본다. */
+  private static readonly ACTING_GRACE_MS = 400;
 
   async duringAction<T>(run: () => Promise<T>): Promise<T> {
-    this.acting = true;
+    if (this.actingDepth === 0) this.actingSince = Date.now();
+    this.actingDepth += 1;
+
     try {
       return await run();
     } finally {
-      // 이벤트가 조금 늦게 오므로 잠깐 여유를 둔다.
-      setTimeout(() => {
-        this.acting = false;
-      }, 120).unref?.();
+      this.actingDepth -= 1;
+      if (this.actingDepth === 0) {
+        this.actingWindows.push({
+          from: this.actingSince - 50,
+          to: Date.now() + Handoff.ACTING_GRACE_MS
+        });
+        // 오래된 구간은 버린다 — 무한히 쌓이면 나중의 진짜 개입까지 무시하게 된다.
+        if (this.actingWindows.length > 50) {
+          this.actingWindows.splice(0, this.actingWindows.length - 50);
+        }
+      }
     }
+  }
+
+  /** 그 시각에 AI 가 조작 중이었는가. */
+  private wasActingAt(at: number): boolean {
+    if (this.actingDepth > 0 && at >= this.actingSince - 50) return true;
+    return this.actingWindows.some((window) => at >= window.from && at <= window.to);
   }
 
   pause(threadId: string, tabId: number, reason: string): void {
