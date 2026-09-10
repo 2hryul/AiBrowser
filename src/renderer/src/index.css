@@ -1,6 +1,37 @@
 @import 'tailwindcss';
 
+/*
+ * 셸 팔레트. 기본값은 밝은 테마이고 다크 값은 아래에서 덮어쓴다.
+ */
 @theme {
+  --color-shell-bg: #ffffff;
+  --color-shell-panel: #f2f2f5;
+  --color-shell-line: #e0e0e6;
+  --color-shell-text: #1c1c1e;
+  --color-shell-muted: #6b6b70;
+  --color-shell-accent: #2563eb;
+}
+
+/*
+ * 다크 팔레트.
+ *
+ * 셸은 data-theme 속성으로 구동한다. Electron 44 에서 nativeTheme.themeSource 를 바꿔도
+ * WebContentsView 안의 prefers-color-scheme 은 따라오지 않는 것을 실측으로 확인했다
+ * (shouldUseDarkColors 만 바뀐다). 그래서 메인이 판정한 결과를 셸에 명시적으로 내려
+ * 확실하게 반영한다. 미디어 쿼리는 속성이 아직 붙기 전(첫 페인트)의 보험으로 남긴다.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-shell-bg: #17171a;
+    --color-shell-panel: #1f1f24;
+    --color-shell-line: #2e2e34;
+    --color-shell-text: #f2f2f5;
+    --color-shell-muted: #9a9aa0;
+    --color-shell-accent: #3b82f6;
+  }
+}
+
+:root[data-theme='dark'] {
   --color-shell-bg: #17171a;
   --color-shell-panel: #1f1f24;
   --color-shell-line: #2e2e34;
@@ -23,4 +54,10 @@ body {
   font-family: 'Segoe UI', system-ui, sans-serif;
   /* 셸은 문서가 아니라 크롬(UI)이므로 텍스트 선택·드래그를 끈다. */
   user-select: none;
+}
+
+/* 읽기 모드 본문만 예외 — 사용자가 복사할 수 있어야 한다. */
+.reader-body,
+.reader-body * {
+  user-select: text;
 }

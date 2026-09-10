@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "Helm 확장 로드 검증",
+  "version": "1.0.0",
+  "description": "session.loadExtension 이 unpacked 확장을 로드하는지 확인하는 fixture. 권한을 요구하지 않는다.",
+  "permissions": ["storage"]
+}

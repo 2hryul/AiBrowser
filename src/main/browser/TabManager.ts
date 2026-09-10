@@ -63,6 +63,11 @@ export class TabManager {
   private nextId = 1;
   private orientation: TabStripOrientation = 'vertical';
   private insets: ContentInsets = { top: 0, left: 0 };
+  /**
+   * 셸 패널(히스토리·다운로드·읽기 모드)이 열려 있으면 true.
+   * 탭 뷰는 셸보다 z-순서상 위에 있어서, 패널을 보이게 하려면 탭 뷰를 숨겨야 한다(ADR 0005).
+   */
+  private contentHidden = false;
   private idleTimer: NodeJS.Timeout | null = null;
   private readonly opts: TabManagerOptions;
 
@@ -99,6 +104,24 @@ export class TabManager {
     const bounds = this.contentBounds();
     for (const tab of this.tabs) {
       tab.view?.setBounds(bounds);
+    }
+    this.applyVisibility();
+  }
+
+  /** 셸 패널이 콘텐츠 영역을 덮어야 할 때 탭 뷰를 숨긴다. */
+  setContentHidden(hidden: boolean): void {
+    if (this.contentHidden === hidden) return;
+    this.contentHidden = hidden;
+    this.applyVisibility();
+  }
+
+  isContentHidden(): boolean {
+    return this.contentHidden;
+  }
+
+  private applyVisibility(): void {
+    for (const tab of this.tabs) {
+      tab.view?.setVisible(!this.contentHidden && tab.id === this.activeId);
     }
   }
 
@@ -152,7 +175,7 @@ export class TabManager {
     tab.view = view;
     this.opts.window.contentView.addChildView(view);
     view.setBounds(this.contentBounds());
-    view.setVisible(this.activeId === tab.id);
+    view.setVisible(!this.contentHidden && this.activeId === tab.id);
 
     this.wireTabEvents(tab, view);
     void view.webContents.loadURL(url);
@@ -297,9 +320,7 @@ export class TabManager {
     // 언로드된 탭을 다시 고르면 그 자리에서 복구한다.
     if (!tab.view) this.attachView(tab, tab.lastUrl);
 
-    for (const other of this.tabs) {
-      other.view?.setVisible(other.id === id);
-    }
+    this.applyVisibility();
     tab.view?.setBounds(this.contentBounds());
     this.emitState();
   }
@@ -394,6 +415,36 @@ export class TabManager {
     this.webContentsOf(id)?.reload();
   }
 
+  /** Ctrl+Shift+R — 캐시를 무시하고 다시 받는다. */
+  hardReload(id: number): void {
+    this.webContentsOf(id)?.reloadIgnoringCache();
+  }
+
+  /** Ctrl+1..8 은 0-기반 인덱스, Ctrl+9 는 -1(마지막 탭)로 들어온다. */
+  selectByIndex(index: number): boolean {
+    const target = index < 0 ? this.tabs[this.tabs.length - 1] : this.tabs[index];
+    if (!target) return false;
+    this.selectTab(target.id);
+    return true;
+  }
+
+  /** Ctrl+Tab / Ctrl+Shift+Tab — 순환한다. */
+  cycleTab(delta: number): boolean {
+    if (this.tabs.length === 0) return false;
+    const current = this.tabs.findIndex((t) => t.id === this.activeId);
+    const base = current === -1 ? 0 : current;
+    const next = (base + delta + this.tabs.length) % this.tabs.length;
+    const target = this.tabs[next];
+    if (!target) return false;
+    this.selectTab(target.id);
+    return true;
+  }
+
+  /** 탭 인덱스 — 셸이 드래그 정렬 결과를 계산할 때 쓴다. */
+  indexOf(id: number): number {
+    return this.tabs.findIndex((t) => t.id === id);
+  }
+
   private webContentsOf(id: number): Electron.WebContents | null {
     const wc = this.tabs.find((t) => t.id === id)?.view?.webContents;
     return wc && !wc.isDestroyed() ? wc : null;
@@ -442,11 +493,25 @@ export class TabManager {
     this.idleTimer.unref?.();
   }
 
+  /**
+   * 정리. 창이 닫힌 뒤와 앱 종료 직전 양쪽에서 호출되므로 두 번 불려도 안전해야 한다.
+   *
+   * 창이 이미 파괴된 상태라면 자식 뷰도 함께 정리된 상태다. 그때 removeChildView 나
+   * webContents.close() 를 부르면 프로세스가 종료 단계에서 멈춘다(quit 이벤트까지 오고 프로세스는
+   * 남는다). 그래서 창 생존 여부를 먼저 확인하고, 죽은 창에서는 참조만 끊는다.
+   */
   dispose(): void {
     if (this.idleTimer) clearInterval(this.idleTimer);
     this.idleTimer = null;
-    for (const tab of [...this.tabs]) this.destroyView(tab);
+
+    const windowAlive = !this.opts.window.isDestroyed();
+    for (const tab of [...this.tabs]) {
+      if (windowAlive) this.destroyView(tab);
+      else tab.view = null;
+    }
+
     this.tabs.length = 0;
+    this.activeId = null;
   }
 
   getState(): BrowserState {

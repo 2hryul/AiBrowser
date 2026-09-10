@@ -11,11 +11,16 @@ export const APP_SCHEME = 'app';
 
 /** app://<host> 로 노출할 번들 디렉터리. 화이트리스트 방식(허용 목록)만 사용한다. */
 const ROOTS: Record<string, string[]> = {
-  home: ['resources', 'home']
+  home: ['resources', 'home'],
+  // 테스트·검증용 페이지. 외부 네트워크 없이 읽기 모드·다운로드를 검증하기 위한 것이다.
+  fixtures: ['fixtures']
 };
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',

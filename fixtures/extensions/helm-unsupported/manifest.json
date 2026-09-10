@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "Helm 미지원 API 검증",
+  "version": "0.2.0",
+  "description": "Electron 이 지원하지 않는 확장 권한을 선언해 경고 경로를 확인하는 fixture.",
+  "permissions": ["storage", "history", "notifications", "bookmarks"]
+}

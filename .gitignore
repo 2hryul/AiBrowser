@@ -8,3 +8,4 @@ playwright-report/
 *.log
 *.tsbuildinfo
 goals.zip
+.smoke-downloads/

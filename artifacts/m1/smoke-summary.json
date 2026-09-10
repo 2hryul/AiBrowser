@@ -1,0 +1,110 @@
+{
+  "ranAt": "2026-09-10T03:10:51.837Z",
+  "m0": {
+    "contentBounds": {
+      "x": 240,
+      "y": 48,
+      "width": 1026,
+      "height": 710
+    },
+    "pageViewport": {
+      "w": 1026,
+      "h": 710
+    },
+    "shellBounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1266,
+      "height": 758
+    },
+    "tabsAfterClose": 2
+  },
+  "history": {
+    "visited": 3,
+    "stored": 3,
+    "filterQuery": "home",
+    "filterRows": 1
+  },
+  "bookmarks": {
+    "addedThenRemoved": true,
+    "insetWithBar": 80,
+    "insetWithoutBar": 48
+  },
+  "downloads": {
+    "file": "sample.pdf",
+    "savePath": "D:\\SOURCE\\aiBrowser\\.smoke-downloads\\sample.pdf",
+    "bytes": 598
+  },
+  "omnibox": {
+    "input": "hom",
+    "topSuggestion": "app://home/",
+    "total": 1
+  },
+  "tabs": {
+    "restoredClosedTab": true,
+    "pinnedHasNoCloseButton": true,
+    "reordered": true,
+    "idleUnloaded": 1
+  },
+  "reader": {
+    "title": "사내 문서 보관 규정 개정 안내",
+    "length": 793,
+    "screenshot": "reader.png"
+  },
+  "find": {
+    "query": "보관",
+    "matches": 13
+  },
+  "darkMode": {
+    "lightLuminance": 244.4,
+    "darkLuminance": 30.5
+  },
+  "extensions": [
+    {
+      "name": "helm-devtest",
+      "ok": true,
+      "version": "1.0.0",
+      "unsupportedPermissions": [],
+      "error": null
+    },
+    {
+      "name": "helm-unsupported",
+      "ok": true,
+      "version": "0.2.0",
+      "unsupportedPermissions": [
+        "bookmarks",
+        "history",
+        "notifications"
+      ],
+      "error": null
+    },
+    {
+      "name": "helm-missing",
+      "ok": false,
+      "version": null,
+      "unsupportedPermissions": [],
+      "error": "manifest.json 없음 (unpacked 디렉터리 경로인지 확인)"
+    }
+  ],
+  "screenshots": {
+    "shell.png": {
+      "width": 1583,
+      "height": 948,
+      "bytes": 21877,
+      "luminance": 30.1
+    },
+    "home-tab.png": {
+      "width": 1283,
+      "height": 848,
+      "bytes": 21716,
+      "luminance": 250.4
+    }
+  },
+  "persistence": {
+    "partition": "persist:helm",
+    "cookie": "helm_smoke_session",
+    "valueAfterRestart": "m1-persisted",
+    "bookmarksAfterRestart": 1,
+    "historyAfterRestart": 12
+  }
+}

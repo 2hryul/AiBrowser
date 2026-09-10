@@ -1,0 +1,33 @@
+[
+  {
+    "name": "helm-devtest",
+    "path": "D:\\SOURCE\\aiBrowser\\fixtures\\extensions\\helm-devtest",
+    "ok": true,
+    "manifestName": "Helm 확장 로드 검증",
+    "version": "1.0.0",
+    "error": null,
+    "unsupportedPermissions": []
+  },
+  {
+    "name": "helm-unsupported",
+    "path": "D:\\SOURCE\\aiBrowser\\fixtures\\extensions\\helm-unsupported",
+    "ok": true,
+    "manifestName": "Helm 미지원 API 검증",
+    "version": "0.2.0",
+    "error": null,
+    "unsupportedPermissions": [
+      "bookmarks",
+      "history",
+      "notifications"
+    ]
+  },
+  {
+    "name": "helm-missing",
+    "path": "D:\\SOURCE\\aiBrowser\\fixtures\\extensions\\없는-확장",
+    "ok": false,
+    "manifestName": null,
+    "version": null,
+    "error": "manifest.json 없음 (unpacked 디렉터리 경로인지 확인)",
+    "unsupportedPermissions": []
+  }
+]
