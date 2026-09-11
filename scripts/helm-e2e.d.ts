@@ -326,6 +326,56 @@ interface HelmBookmarkMetaHook {
   ) => { ok: boolean; reason?: string };
 }
 
+// ── M5 검증 계층 ──
+
+interface HelmWorkflowListItem {
+  id: string;
+  version: number;
+  description: string | null;
+  file: string;
+  error: string | null;
+}
+
+interface HelmWorkflowOutcome {
+  runId: string;
+  workflowId: string;
+  workflowVersion: number;
+  inputs: Record<string, unknown>;
+  verdict: 'PASS' | 'REVIEW' | 'FAIL' | 'ADAPTER_BROKEN';
+  status: string;
+  sources: { step: string; adapter: string | null; source: string; note: string | null }[];
+  outputs: Record<string, unknown>;
+  oracles: { rule: string; ruleVersion: number; verdict: string; ok: boolean; message: string }[];
+  evidence: { runId: string; dir: string; files: string[]; maskedFields: number; screenshots: number };
+  durationMs: number;
+}
+
+interface HelmScheduleEntry {
+  id: string;
+  workflowId: string;
+  cron: string;
+  lastRunAt: number | null;
+  lastVerdict: string | null;
+  runCount: number;
+}
+
+interface HelmSchedulerHook {
+  list: () => HelmScheduleEntry[];
+  add: (input: { id: string; workflowId: string; cron: string; inputs?: Record<string, unknown> }) => HelmScheduleEntry;
+  remove: (id: string) => boolean;
+  fire: (id: string) => Promise<HelmWorkflowOutcome | null>;
+  stopAll: () => void;
+}
+
+interface HelmWorkflowDraft {
+  yaml: string;
+  workflowId: string;
+  todo: string[];
+  skipped: { tool: string; reason: string }[];
+  steps: { id: string; adapter?: string; op?: string; as: string }[];
+  inputs: string[];
+}
+
 interface HelmE2EHook {
   // M0/M1
   getTabManager: () => HelmTabManagerHook | null;
@@ -398,6 +448,27 @@ interface HelmE2EHook {
     id: number
   ) => Promise<{ tabs: { tabId: number; url: string; sessionName: string }[] }>;
   approvalDocs: () => Promise<{ id: string; title: string; amount: number }[]>;
+
+  // M5
+  evidenceBaseDir: string;
+  listWorkflows: () => HelmWorkflowListItem[];
+  runWorkflow: (
+    workflowId: string,
+    inputs: Record<string, unknown>,
+    runId?: string
+  ) => Promise<HelmWorkflowOutcome | null>;
+  workflowRuns: () => unknown[];
+  promoteThreadDraft: (threadId: string) => HelmWorkflowDraft | null;
+  checkWorkflowDraft: (source: string) => { ok: boolean; issues: string[]; id: string | null };
+  getScheduler: () => HelmSchedulerHook | null;
+  addSchedule: (input: {
+    id: string;
+    workflowId: string;
+    cron: string;
+    inputs?: Record<string, unknown>;
+  }) => HelmScheduleEntry | null;
+  fireSchedule: (id: string) => Promise<unknown | null>;
+  setSettleApi: (enabled: boolean) => Promise<boolean>;
 }
 
 declare global {

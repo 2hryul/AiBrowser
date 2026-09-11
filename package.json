@@ -26,7 +26,9 @@
     "probe:llm": "node scripts/probe-llm.mjs",
     "fixtures:golden": "tsx scripts/make-golden.ts",
     "test:ops": "vitest run tests/ops.test.ts",
-    "test:workflow": "vitest run tests/workflow.test.ts"
+    "test:workflow": "vitest run tests/workflow.test.ts tests/workflow-golden.test.ts tests/evidence.test.ts tests/adapters.test.ts",
+    "test:workflow-e2e": "electron-vite build && playwright test scripts/workflow-e2e.ts",
+    "eval": "electron-vite build && tsx scripts/eval.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
