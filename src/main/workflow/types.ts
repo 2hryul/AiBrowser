@@ -96,6 +96,13 @@ export interface RuleResult {
 
 export interface Rule<Args = Record<string, unknown>> {
   id: string;
+  /**
+   * 규칙 판정 로직의 버전. 정수 단조 증가.
+   *
+   * 판정 결과에 함께 남는다(증거 팩 `oracles.json`). 규칙을 고치면 같은 데이터가 다른 판정을
+   * 낼 수 있으므로, 과거 판정을 되짚을 때 "어느 판단 기준이었나" 를 알 수 있어야 한다.
+   */
+  version: number;
   /** 무엇을 보는 규칙인가 */
   description: string;
   /** 인자 검증. 잘못된 오라클 설정은 로드 시점에 걸러야 한다. */
@@ -114,6 +121,8 @@ export interface OracleSpec {
 
 export interface OracleOutcome {
   rule: string;
+  /** 판정을 낸 규칙의 버전 */
+  ruleVersion: number;
   severity: RuleSeverity;
   verdict: Verdict;
   ok: boolean;

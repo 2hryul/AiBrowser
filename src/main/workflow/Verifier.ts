@@ -1,4 +1,5 @@
 import { getRule } from './rules/index';
+import { lookupProvenanced } from './values';
 import {
   hasLlmSource,
   worstVerdict,
@@ -73,6 +74,7 @@ function runOracle(
     // 없는 규칙을 조용히 건너뛰면 "검증했다" 는 거짓이 된다.
     return {
       rule: oracle.rule,
+      ruleVersion: 0,
       severity: oracle.severity,
       verdict: 'FAIL',
       ok: false,
@@ -92,6 +94,7 @@ function runOracle(
   } catch (error) {
     return {
       rule: oracle.rule,
+      ruleVersion: rule.version,
       severity: oracle.severity,
       verdict: 'FAIL',
       ok: false,
@@ -102,13 +105,19 @@ function runOracle(
     };
   }
 
+  // 근거 값의 출처는 경로 조회로 얻는다. `recon.onlyLeft` 처럼 안쪽을 가리킨 오라클도
+  // 머리(`recon`)의 출처를 보게 되어 LLM 강등을 건너뛰지 않는다.
   const used = [...new Set(context.used)];
-  const sources = used.map((name) => ({
+  const entries = used.map((name) => ({ name, entry: lookupProvenanced(values, name) }));
+
+  const sources = entries.map(({ name, entry }) => ({
     name,
-    source: values[name]?.source ?? ('const' as const)
+    source: entry?.source ?? ('const' as const)
   }));
 
-  const llmBacked = hasLlmSource(used.map((name) => values[name]).filter((item) => item !== undefined));
+  const llmBacked = hasLlmSource(
+    entries.map(({ entry }) => entry).filter((item) => item !== undefined)
+  );
 
   let verdict: Verdict;
   let downgraded = false;
@@ -125,6 +134,7 @@ function runOracle(
 
   return {
     rule: oracle.rule,
+    ruleVersion: rule.version,
     severity: oracle.severity,
     verdict,
     ok: result.ok,

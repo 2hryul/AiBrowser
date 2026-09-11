@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Rule, RuleContext, RuleResult } from '../types';
+import { lookupProvenanced } from '../values';
 
 /**
  * 오라클 규칙 7종.
@@ -11,11 +12,13 @@ import type { Rule, RuleContext, RuleResult } from '../types';
  * LLM 이 섞였으면 PASS 를 REVIEW 로 내린다 — 규칙이 스스로 판단하지 않는다(한 곳에서만 강등).
  */
 
-/** 값 하나를 이름으로 꺼낸다. 없으면 규칙이 실패한다(조용히 통과하지 않는다). */
+/**
+ * 값 하나를 이름(또는 `recon.onlyLeft` 같은 경로)으로 꺼낸다.
+ * 없으면 규칙이 실패한다 — 조용히 통과하지 않는다.
+ */
 function pick(context: RuleContext, name: string): unknown {
   context.used.push(name);
-  const entry = context.values[name];
-  return entry?.value;
+  return lookupProvenanced(context.values, name)?.value;
 }
 
 function asNumber(value: unknown): number | null {
@@ -44,6 +47,7 @@ const sumEqualArgs = z.object({
 
 export const sumEqual: Rule<z.infer<typeof sumEqualArgs>> = {
   id: 'sum_equal',
+  version: 1,
   description: '두 값(또는 두 합계)이 허용 오차 안에서 같은가',
   validate: (args) => sumEqualArgs.parse(args),
   run(args, context): RuleResult {
@@ -83,6 +87,7 @@ const ratioArgs = z.object({
 
 export const ratioGte: Rule<z.infer<typeof ratioArgs>> = {
   id: 'ratio_gte',
+  version: 1,
   description: '분자/분모 비율이 기준 이상인가 (매칭률 등)',
   validate: (args) => ratioArgs.parse(args),
   run(args, context): RuleResult {
@@ -131,6 +136,7 @@ const emptyArgs = z.object({
 
 export const empty: Rule<z.infer<typeof emptyArgs>> = {
   id: 'empty',
+  version: 1,
   description: '목록이 비어 있는가 (미매칭·예외 목록 검사)',
   validate: (args) => emptyArgs.parse(args),
   run(args, context): RuleResult {
@@ -164,6 +170,7 @@ const requiredArgs = z.object({
 
 export const requiredFields: Rule<z.infer<typeof requiredArgs>> = {
   id: 'required_fields',
+  version: 1,
   description: '목록의 모든 행에 필수 항목이 있는가',
   validate: (args) => requiredArgs.parse(args),
   run(args, context): RuleResult {
@@ -223,6 +230,7 @@ const NAMED_FORMATS: Record<string, RegExp> = {
 
 export const format: Rule<z.infer<typeof formatArgs>> = {
   id: 'format',
+  version: 1,
   description: '값(또는 목록의 항목)이 정해진 형식인가',
   validate: (args) => formatArgs.parse(args),
   run(args, context): RuleResult {
@@ -277,6 +285,7 @@ const crossArgs = z.object({
 
 export const crossEqual: Rule<z.infer<typeof crossArgs>> = {
   id: 'cross_equal',
+  version: 1,
   description: '두 목록에서 같은 키를 가진 행의 항목 값이 같은가',
   validate: (args) => crossArgs.parse(args),
   run(args, context): RuleResult {
@@ -337,6 +346,7 @@ const dateOrderArgs = z.object({
 
 export const dateOrder: Rule<z.infer<typeof dateOrderArgs>> = {
   id: 'date_order',
+  version: 1,
   description: '날짜가 오름차순·내림차순인가, 또는 모두 같은 날인가',
   validate: (args) => dateOrderArgs.parse(args),
   run(args, context): RuleResult {

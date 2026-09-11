@@ -4,6 +4,7 @@ import { normalizeRows, type NormalizeKind } from './ops/normalize';
 import { reconcile } from './ops/reconcile';
 import { isAdapterStep, type StepDoc, type WorkflowDoc } from './schema';
 import { provenanced, type Provenanced, type ValueSource, type Verdict } from './types';
+import { resolvePath } from './values';
 import { verify, type VerifyResult } from './Verifier';
 
 /**
@@ -434,6 +435,8 @@ export class Engine {
 // 치환 — `${이름.경로}` 만 지원한다(식 계산은 없다)
 // ─────────────────────────────────────────────────────────────
 
+export { resolvePath } from './values';
+
 const REFERENCE = /^\$\{([^}]+)\}$/;
 
 /**
@@ -463,32 +466,6 @@ export function substitute(
   }
 
   return input;
-}
-
-/** `recon.counts.exact` 처럼 점으로 이어진 경로를 따라간다. */
-export function resolvePath(
-  values: Record<string, Provenanced<unknown>>,
-  path: string
-): unknown {
-  const direct = values[path];
-  if (direct) return direct.value;
-
-  const parts = path.split('.');
-
-  for (let take = parts.length - 1; take >= 1; take -= 1) {
-    const head = parts.slice(0, take).join('.');
-    const entry = values[head];
-    if (!entry) continue;
-
-    let cursor: unknown = entry.value;
-    for (const part of parts.slice(take)) {
-      if (cursor === null || typeof cursor !== 'object') return undefined;
-      cursor = (cursor as Record<string, unknown>)[part];
-    }
-    return cursor;
-  }
-
-  return undefined;
 }
 
 /** 치환된 인자가 어떤 값들에서 왔는지 — 출처 물려주기에 쓴다. */
