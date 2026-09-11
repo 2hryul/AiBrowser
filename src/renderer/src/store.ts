@@ -46,6 +46,12 @@ interface ShellStore {
   /** 관리자 잠금이면 승인 범위를 once 로 제한한다. */
   policyLocked: boolean;
 
+  /**
+   * 승격 대기 중인 스레드 id (M5).
+   * 스레드 패널에서 "워크플로우로 승격" 을 누르면 여기에 담고 워크플로우 패널로 넘긴다.
+   */
+  promoteThreadId: string | null;
+
   /** 주소창 입력값. 타이핑 중이면 실제 URL 대신 이 값을 보여준다. */
   omniboxDraft: string | null;
   omniboxError: boolean;
@@ -63,6 +69,7 @@ interface ShellStore {
   addApproval: (request: ApprovalRequestView) => void;
   removeApproval: (id: string) => void;
   setPolicyLocked: (locked: boolean) => void;
+  setPromoteThreadId: (threadId: string | null) => void;
   setDownloads: (downloads: DownloadItem[]) => void;
   setDraft: (value: string | null) => void;
   setError: (value: boolean) => void;
@@ -83,6 +90,7 @@ export const useShellStore = create<ShellStore>((set, get) => ({
   prompts: [],
   approvals: [],
   policyLocked: false,
+  promoteThreadId: null,
 
   omniboxDraft: null,
   omniboxError: false,
@@ -117,6 +125,7 @@ export const useShellStore = create<ShellStore>((set, get) => ({
   removeApproval: (id) =>
     set((state) => ({ approvals: state.approvals.filter((item) => item.id !== id) })),
   setPolicyLocked: (locked) => set({ policyLocked: locked }),
+  setPromoteThreadId: (threadId) => set({ promoteThreadId: threadId }),
   setDownloads: (downloads) => set({ downloads }),
 
   setDraft: (value) =>

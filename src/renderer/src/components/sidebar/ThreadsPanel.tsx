@@ -4,6 +4,7 @@ import type {
   ThreadMessageView,
   ThreadView
 } from '../../../../shared/types';
+import { useShellStore } from '../../store';
 import { PanelFrame } from '../panels/PanelFrame';
 
 /**
@@ -43,6 +44,7 @@ const ROLE_LABEL: Record<ThreadMessageView['role'], string> = {
 };
 
 export function ThreadsPanel(): JSX.Element {
+  const setPromoteThreadId = useShellStore((state) => state.setPromoteThreadId);
   const [threads, setThreads] = useState<ThreadView[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<ThreadMessageView[]>([]);
@@ -181,6 +183,22 @@ export function ThreadsPanel(): JSX.Element {
                     이어서
                   </button>
                 ) : null}
+
+                {/*
+                  승격 — 이 스레드의 도구 호출 기록에서 워크플로우 초안을 만든다.
+                  초안에는 오라클이 없다. 판정 기준은 사람이 붙여야 한다(M5).
+                */}
+                <button
+                  type="button"
+                  data-thread-promote
+                  className="h-7 rounded border border-shell-line px-2 text-[12px] hover:bg-shell-panel"
+                  onClick={() => {
+                    setPromoteThreadId(current.id);
+                    void window.helm.openPanel('workflows');
+                  }}
+                >
+                  워크플로우로 승격
+                </button>
 
                 {current.status === 'running' || current.status === 'paused' ? (
                   <button

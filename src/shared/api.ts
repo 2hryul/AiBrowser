@@ -58,6 +58,66 @@ export interface DiscoveredProfileInfo {
  * preload 가 `window.helm` 으로 노출하는 표면.
  * 메인/preload(Node)와 렌더러(DOM)가 서로의 소스를 참조하지 않도록 계약만 여기 둔다.
  */
+// ── M5 검증 계층 ──────────────────────────────────────
+
+export interface WorkflowListItem {
+  id: string;
+  version: number;
+  description: string | null;
+  file: string;
+  /** 로드 실패 사유. null 이면 실행 가능하다. */
+  error: string | null;
+}
+
+export interface WorkflowOracleView {
+  rule: string;
+  ruleVersion: number;
+  verdict: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface WorkflowRunView {
+  runId: string;
+  workflowId: string;
+  workflowVersion: number;
+  inputs: Record<string, unknown>;
+  verdict: string;
+  status: string;
+  /** 단계별 실제 획득 경로 — 폴백이 일어났으면 계약과 달라진다 */
+  sources: { step: string; adapter: string | null; source: string; note: string | null }[];
+  oracles: WorkflowOracleView[];
+  evidencePath: string;
+  durationMs: number;
+  finishedAt: number;
+}
+
+export interface WorkflowDraftView {
+  yaml: string;
+  workflowId: string;
+  /** 사람이 해야 할 일 — 오라클 추가가 언제나 첫 줄이다 */
+  todo: string[];
+  skipped: { tool: string; reason: string }[];
+}
+
+export interface WorkflowCheckView {
+  ok: boolean;
+  issues: string[];
+  id: string | null;
+  version: number | null;
+  oracles: number;
+}
+
+export interface ScheduleView {
+  id: string;
+  workflowId: string;
+  cron: string;
+  description?: string;
+  lastRunAt: number | null;
+  lastVerdict: string | null;
+  runCount: number;
+}
+
 export interface HelmApi {
   // 탭
   getState(): Promise<BrowserState>;
@@ -209,6 +269,24 @@ export interface HelmApi {
   getResults(threadId: string): Promise<unknown[]>;
   exportResults(threadId: string, format: 'csv' | 'md' | 'json'): Promise<ExportResultView | null>;
 
+  // 워크플로우(M5)
+  getWorkflows(): Promise<WorkflowListItem[]>;
+  runWorkflow(workflowId: string, inputs: Record<string, unknown>): Promise<WorkflowRunView | null>;
+  getWorkflowRuns(): Promise<WorkflowRunView[]>;
+  promoteThread(threadId: string): Promise<WorkflowDraftView | null>;
+  checkWorkflow(source: string): Promise<WorkflowCheckView>;
+  saveWorkflow(source: string): Promise<WorkflowCheckView & { file: string | null }>;
+  getSchedules(): Promise<ScheduleView[]>;
+  addSchedule(input: {
+    id: string;
+    workflowId: string;
+    cron: string;
+    inputs?: Record<string, unknown>;
+    description?: string;
+  }): Promise<ScheduleView | { error: string }>;
+  removeSchedule(id: string): Promise<boolean>;
+  fireSchedule(id: string): Promise<WorkflowRunView | null>;
+
   // 구독 — 반환값을 호출하면 해제된다.
   onStateChanged(listener: (state: BrowserState) => void): () => void;
   onShellChanged(listener: (state: ShellState) => void): () => void;
@@ -228,4 +306,5 @@ export interface HelmApi {
   ): () => void;
   onSessionsChanged(listener: (state: SessionStateView) => void): () => void;
   onTrackedUrlsChanged(listener: (urls: TrackedUrlView[]) => void): () => void;
+  onWorkflowRunsChanged(listener: (runs: WorkflowRunView[]) => void): () => void;
 }

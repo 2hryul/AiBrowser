@@ -141,7 +141,9 @@ export type ShellPanel =
   | 'notes'
   | 'results'
   | 'sessions'
-  | 'changes';
+  | 'changes'
+  // M5 검증 계층
+  | 'workflows';
 
 /** 확장 로드 결과 — docs/extensions.md 기록용 */
 export interface ExtensionLoadResult {

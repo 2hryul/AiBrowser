@@ -146,6 +146,19 @@ export const IPC = {
   resultsChanged: 'helm:results:changed',
   resultsExport: 'helm:results:export',
 
+  // ── M5 검증 계층 ────────────────────────────────────
+  workflowsGet: 'helm:workflows:get',
+  workflowRun: 'helm:workflows:run',
+  workflowRunsGet: 'helm:workflows:runs',
+  workflowRunsChanged: 'helm:workflows:runs-changed',
+  workflowPromote: 'helm:workflows:promote',
+  workflowCheck: 'helm:workflows:check',
+  workflowSave: 'helm:workflows:save',
+  schedulesGet: 'helm:schedules:get',
+  scheduleAdd: 'helm:schedules:add',
+  scheduleRemove: 'helm:schedules:remove',
+  scheduleFire: 'helm:schedules:fire',
+
   // ── 메인 → 렌더러 요청 ──────────────────────────────
   focusOmnibox: 'helm:shell:focus-omnibox',
   focusFindBar: 'helm:shell:focus-findbar'

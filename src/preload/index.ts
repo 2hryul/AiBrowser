@@ -140,6 +140,18 @@ const api: HelmApi = {
   getResults: (threadId) => ipcRenderer.invoke(IPC.resultsGet, threadId),
   exportResults: (threadId, format) => ipcRenderer.invoke(IPC.resultsExport, threadId, format),
 
+  // 워크플로우(M5)
+  getWorkflows: () => ipcRenderer.invoke(IPC.workflowsGet),
+  runWorkflow: (workflowId, inputs) => ipcRenderer.invoke(IPC.workflowRun, workflowId, inputs),
+  getWorkflowRuns: () => ipcRenderer.invoke(IPC.workflowRunsGet),
+  promoteThread: (threadId) => ipcRenderer.invoke(IPC.workflowPromote, threadId),
+  checkWorkflow: (source) => ipcRenderer.invoke(IPC.workflowCheck, source),
+  saveWorkflow: (source) => ipcRenderer.invoke(IPC.workflowSave, source),
+  getSchedules: () => ipcRenderer.invoke(IPC.schedulesGet),
+  addSchedule: (input) => ipcRenderer.invoke(IPC.scheduleAdd, input),
+  removeSchedule: (id) => ipcRenderer.invoke(IPC.scheduleRemove, id),
+  fireSchedule: (id) => ipcRenderer.invoke(IPC.scheduleFire, id),
+
   // 구독
   onStateChanged: (listener) => subscribe(IPC.stateChanged, listener),
   onShellChanged: (listener) => subscribe(IPC.shellChanged, listener),
@@ -164,7 +176,8 @@ const api: HelmApi = {
   onInboxChanged: (listener) => subscribe(IPC.inboxChanged, listener),
   onCheckpointsChanged: (listener) => subscribe(IPC.checkpointsChanged, listener),
   onSessionsChanged: (listener) => subscribe(IPC.sessionsChanged, listener),
-  onTrackedUrlsChanged: (listener) => subscribe(IPC.pageHistoryUrls, listener)
+  onTrackedUrlsChanged: (listener) => subscribe(IPC.pageHistoryUrls, listener),
+  onWorkflowRunsChanged: (listener) => subscribe(IPC.workflowRunsChanged, listener)
 };
 
 contextBridge.exposeInMainWorld('helm', api);

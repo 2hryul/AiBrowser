@@ -33,6 +33,9 @@ import { SessionStore, DEFAULT_SESSION } from './sessions/SessionStore';
 import { ThreadStore } from './persistence/ThreadStore';
 import { CheckpointStore, type Checkpoint } from './persistence/CheckpointStore';
 import { Inbox } from './persistence/Inbox';
+import { Scheduler } from './scheduler/Scheduler';
+import { checkDraft, promoteThread } from './workflow/Promote';
+import { WorkflowRunner, type WorkflowRunOutcome } from './workflow/Runner';
 import { NoteStore } from './persistence/NoteStore';
 import { BookmarkMeta } from './persistence/BookmarkMeta';
 import { ChangeTracker } from './persistence/ChangeTracker';
@@ -51,7 +54,7 @@ import {
   type ShellPanel,
   type ThemeSource
 } from '../shared/types';
-import type { ShellState } from '../shared/api';
+import type { ShellState, WorkflowRunView } from '../shared/api';
 
 /** Named Session: M1은 기본 세션 하나만 쓴다. 파티션 이름은 재시작 후 세션 유지의 키다. */
 const SESSION_NAME = 'default';
@@ -97,6 +100,8 @@ let sessionStore: SessionStore | null = null;
 let threadStore: ThreadStore | null = null;
 let checkpointStore: CheckpointStore | null = null;
 let inbox: Inbox | null = null;
+let workflowRunner: WorkflowRunner | null = null;
+let scheduler: Scheduler | null = null;
 let noteStore: NoteStore | null = null;
 let bookmarkMeta: BookmarkMeta | null = null;
 let changeTracker: ChangeTracker | null = null;
@@ -160,6 +165,49 @@ function downloadDir(): string {
     return resolved;
   }
   return app.getPath('downloads');
+}
+
+/**
+ * 증거 팩이 쌓이는 곳의 부모. 실제 사용은 userData 아래지만, 골든셋 러너가
+ * 저장소 안(`evidence/<runId>/`)에 남기고 검사할 수 있게 환경변수로 바꿀 수 있다.
+ */
+/**
+ * 최근 워크플로우 실행 기록. 사이드바가 판정과 증거 팩 경로를 보여 주는 데 쓴다.
+ * 디스크(증거 팩)가 진본이므로 메모리에는 최근 것만 둔다.
+ */
+const workflowRuns: WorkflowRunView[] = [];
+const WORKFLOW_RUN_LIMIT = 50;
+
+function recordWorkflowRun(outcome: WorkflowRunOutcome): WorkflowRunView {
+  const view: WorkflowRunView = {
+    runId: outcome.runId,
+    workflowId: outcome.workflowId,
+    workflowVersion: outcome.workflowVersion,
+    inputs: outcome.inputs,
+    verdict: outcome.verdict,
+    status: outcome.status,
+    sources: outcome.sources,
+    oracles: outcome.oracles,
+    evidencePath: outcome.evidence.dir,
+    durationMs: outcome.durationMs,
+    finishedAt: Date.now()
+  };
+
+  workflowRuns.unshift(view);
+  if (workflowRuns.length > WORKFLOW_RUN_LIMIT) workflowRuns.length = WORKFLOW_RUN_LIMIT;
+
+  sendToShell(IPC.workflowRunsChanged, workflowRuns);
+  return view;
+}
+
+function evidenceBaseDir(): string {
+  const override = process.env['HELM_EVIDENCE_DIR'];
+  if (override) {
+    const resolved = path.resolve(override);
+    fs.mkdirSync(resolved, { recursive: true });
+    return resolved;
+  }
+  return app.getPath('userData');
 }
 
 function sendToShell(channel: string, payload?: unknown): void {
@@ -1016,7 +1064,8 @@ function registerIpc(): void {
       'notes',
       'results',
       'sessions',
-      'changes'
+      'changes',
+      'workflows'
     ];
     if (typeof panel !== 'string' || !allowed.includes(panel as ShellPanel)) return false;
     setPanel(panel as ShellPanel);
@@ -1508,6 +1557,160 @@ function registerIpc(): void {
     return true;
   });
 
+  // ── M5 검증 계층 ──
+  ipcMain.handle(IPC.workflowsGet, () => workflowRunner?.list() ?? []);
+  ipcMain.handle(IPC.workflowRunsGet, () => workflowRuns);
+
+  ipcMain.handle(IPC.workflowRun, async (_e, workflowId: unknown, inputs: unknown) => {
+    if (typeof workflowId !== 'string' || !workflowRunner) return null;
+
+    const args =
+      inputs !== null && typeof inputs === 'object' ? (inputs as Record<string, unknown>) : {};
+
+    try {
+      return recordWorkflowRun(await workflowRunner.run(workflowId, args));
+    } catch (error) {
+      console.error(`[workflow] ${workflowId} 실행 실패`, error);
+      return null;
+    }
+  });
+
+  ipcMain.handle(IPC.workflowPromote, (_e, threadId: unknown) => {
+    if (typeof threadId !== 'string' || !threadStore) return null;
+
+    const thread = threadStore.get(threadId);
+    if (!thread) return null;
+
+    const draft = promoteThread({
+      threadId,
+      title: thread.title,
+      messages: threadStore.messages(threadId)
+    });
+
+    return { yaml: draft.yaml, workflowId: draft.workflowId, todo: draft.todo, skipped: draft.skipped };
+  });
+
+  ipcMain.handle(IPC.workflowCheck, (_e, source: unknown) => {
+    if (typeof source !== 'string') {
+      return { ok: false, issues: ['내용이 없습니다'], id: null, version: null, oracles: 0 };
+    }
+
+    const check = checkDraft(source);
+    return {
+      ok: check.ok,
+      issues: check.issues,
+      id: check.workflow?.id ?? null,
+      version: check.workflow?.version ?? null,
+      oracles: check.workflow?.oracles.length ?? 0
+    };
+  });
+
+  ipcMain.handle(IPC.workflowSave, (_e, source: unknown) => {
+    if (typeof source !== 'string') {
+      return { ok: false, issues: ['내용이 없습니다'], id: null, version: null, oracles: 0, file: null };
+    }
+
+    // 저장 전에 실제 로더를 통과해야 한다 — 오라클이 빈 초안은 여기서 막힌다.
+    const check = checkDraft(source);
+    if (!check.ok || !check.workflow) {
+      return {
+        ok: false,
+        issues: check.issues,
+        id: null,
+        version: null,
+        oracles: 0,
+        file: null
+      };
+    }
+
+    const dir = path.join(app.getAppPath(), 'workflows');
+    const file = path.join(dir, `${check.workflow.id}.yaml`);
+
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, source.endsWith('\n') ? source : `${source}\n`, 'utf-8');
+      workflowRunner?.forget(check.workflow.id);
+    } catch (error) {
+      return {
+        ok: false,
+        issues: [`[workflowSave] 저장 실패 - 경로: ${file} - ${(error as Error).message}`],
+        id: check.workflow.id,
+        version: check.workflow.version,
+        oracles: check.workflow.oracles.length,
+        file: null
+      };
+    }
+
+    return {
+      ok: true,
+      issues: [],
+      id: check.workflow.id,
+      version: check.workflow.version,
+      oracles: check.workflow.oracles.length,
+      file
+    };
+  });
+
+  ipcMain.handle(IPC.schedulesGet, () =>
+    (scheduler?.list() ?? []).map((entry) => ({
+      id: entry.id,
+      workflowId: entry.workflowId,
+      cron: entry.cron,
+      ...(entry.description === undefined ? {} : { description: entry.description }),
+      lastRunAt: entry.lastRunAt,
+      lastVerdict: entry.lastVerdict,
+      runCount: entry.runCount
+    }))
+  );
+
+  ipcMain.handle(IPC.scheduleAdd, (_e, input: unknown) => {
+    if (input === null || typeof input !== 'object' || !scheduler) return { error: '입력이 없습니다' };
+
+    const record = input as Record<string, unknown>;
+    const id = String(record['id'] ?? '');
+    const workflowId = String(record['workflowId'] ?? '');
+    const expression = String(record['cron'] ?? '');
+
+    if (id === '' || workflowId === '' || expression === '') {
+      return { error: 'id · workflowId · cron 이 모두 필요합니다' };
+    }
+
+    try {
+      const entry = scheduler.add({
+        id,
+        workflowId,
+        cron: expression,
+        ...(record['inputs'] !== null && typeof record['inputs'] === 'object'
+          ? { inputs: record['inputs'] as Record<string, unknown> }
+          : {}),
+        ...(typeof record['description'] === 'string' ? { description: record['description'] } : {})
+      });
+
+      return {
+        id: entry.id,
+        workflowId: entry.workflowId,
+        cron: entry.cron,
+        lastRunAt: entry.lastRunAt,
+        lastVerdict: entry.lastVerdict,
+        runCount: entry.runCount
+      };
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle(IPC.scheduleRemove, (_e, id: unknown) => {
+    if (typeof id !== 'string' || !scheduler) return false;
+    return scheduler.remove(id);
+  });
+
+  ipcMain.handle(IPC.scheduleFire, async (_e, id: unknown) => {
+    if (typeof id !== 'string' || !scheduler) return null;
+
+    const outcome = await scheduler.fire(id);
+    return outcome === null ? null : recordWorkflowRun(outcome);
+  });
+
   ipcMain.handle(IPC.importRun, (_e, dir: unknown) => {
     if (typeof dir !== 'string' || !history || !bookmarks || !autofill) return null;
 
@@ -1543,6 +1746,8 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   // 남은 승인 요청은 거부로 떨어뜨린다. 조용히 통과시키지 않는다.
   approval?.rejectAll();
+  // 예약을 먼저 세운다 — 종료 중에 cron 이 새 실행을 시작하면 탭 없이 돌게 된다.
+  scheduler?.stopAll();
   void mcpServer?.stop();
   overlay?.dispose();
   handoff?.dispose();
@@ -1583,6 +1788,31 @@ void app.whenReady().then(async () => {
   noteStore = new NoteStore(database);
   bookmarkMeta = new BookmarkMeta(database);
   changeTracker = new ChangeTracker(database);
+
+  // ── M5 검증 계층 ──
+  // 워크플로우는 사람이 쓰는 것과 같은 문(ToolSurface)을 지난다 — 정책·마스킹·감사 로그가
+  // 거기 붙어 있다. 증거 팩 위치는 테스트가 저장소 안으로 돌릴 수 있게 환경변수로 연다.
+  workflowRunner = new WorkflowRunner({
+    callTool: async (threadId, name, args) => {
+      const { callTool: dispatch } = await import('./tools/index');
+      return dispatch(createToolContext(threadId, 'workflow'), name, args);
+    },
+    baseDir: evidenceBaseDir(),
+    workflowDir: path.join(app.getAppPath(), 'workflows')
+  });
+
+  scheduler = new Scheduler({
+    runner: workflowRunner,
+    post: (item) => {
+      inbox?.post({
+        kind: item.kind,
+        title: item.title,
+        summary: item.summary,
+        threadId: item.threadId,
+        ...(item.evidencePath === '' ? {} : { evidencePath: item.evidencePath })
+      });
+    }
+  });
 
   // 앱이 죽어서 남은 running 스레드는 paused 로 내린다(불변 조건 6).
   const recovered = threadStore.recoverInterrupted();
@@ -1745,6 +1975,47 @@ void app.whenReady().then(async () => {
       piiSamples: async () => {
         const { portalTestHooks } = await import('./browser/PortalProtocol');
         return portalTestHooks.piiSamples();
+      },
+      // ── M5 검증 계층 ──
+      evidenceBaseDir: evidenceBaseDir(),
+      listWorkflows: () => workflowRunner?.list() ?? [],
+      runWorkflow: async (workflowId: string, inputs: Record<string, unknown>, runId?: string) => {
+        if (!workflowRunner) return null;
+        const outcome = await workflowRunner.run(
+          workflowId,
+          inputs,
+          runId === undefined ? {} : { runId }
+        );
+        recordWorkflowRun(outcome);
+        return outcome;
+      },
+      workflowRuns: () => workflowRuns,
+      promoteThreadDraft: (threadId: string) => {
+        if (!threadStore) return null;
+        const thread = threadStore.get(threadId);
+        if (!thread) return null;
+        return promoteThread({
+          threadId,
+          title: thread.title,
+          messages: threadStore.messages(threadId)
+        });
+      },
+      checkWorkflowDraft: (source: string) => {
+        const check = checkDraft(source);
+        return { ok: check.ok, issues: check.issues, id: check.workflow?.id ?? null };
+      },
+      getScheduler: () => scheduler,
+      addSchedule: (input: { id: string; workflowId: string; cron: string; inputs?: Record<string, unknown> }) =>
+        scheduler?.add(input) ?? null,
+      fireSchedule: async (id: string) => {
+        const outcome = (await scheduler?.fire(id)) ?? null;
+        return outcome === null ? null : recordWorkflowRun(outcome);
+      },
+      /** 정산 API 스위치 — 어댑터 사다리 폴백을 시험한다(성공 조건 5) */
+      setSettleApi: async (enabled: boolean) => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        portalTestHooks.setSettleApi(enabled);
+        return portalTestHooks.isSettleApiEnabled();
       },
       pendingPrompts: () => [...pendingPrompts.values()].map((entry) => entry.prompt),
       answerPrompt: (id: string, answer: string) => {
