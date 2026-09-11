@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-09-10T08:18:47.672Z",
+  "ranAt": "2026-09-11T06:44:00.181Z",
   "m0": {
     "contentBounds": {
       "x": 240,
@@ -90,8 +90,8 @@
     "shell.png": {
       "width": 1583,
       "height": 948,
-      "bytes": 28108,
-      "luminance": 30.3
+      "bytes": 27481,
+      "luminance": 30.5
     },
     "home-tab.png": {
       "width": 1283,

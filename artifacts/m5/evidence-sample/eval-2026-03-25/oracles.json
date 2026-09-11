@@ -1,0 +1,139 @@
+{
+  "verdict": "REVIEW",
+  "composition": "최악값 (ADAPTER_BROKEN > FAIL > REVIEW > PASS)",
+  "adapterBroken": null,
+  "downgraded": 0,
+  "outcomes": [
+    {
+      "rule": "sum_equal",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "PASS",
+      "ok": true,
+      "message": "합계 일치 (차이 0)",
+      "note": "하루 정산 합계와 전표 합계는 원 단위까지 같아야 한다",
+      "args": {
+        "left": "settle_total",
+        "right": "ledger_total",
+        "tolerance": 0
+      },
+      "sources": [
+        {
+          "name": "settle_total",
+          "source": "network"
+        },
+        {
+          "name": "ledger_total",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "left": 6975000,
+        "right": 6975000,
+        "diff": 0,
+        "tolerance": 0
+      }
+    },
+    {
+      "rule": "empty",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "PASS",
+      "ok": true,
+      "message": "recon.onlyLeft 비어 있음",
+      "note": "정산에 있는데 전표가 없는 거래",
+      "args": {
+        "target": "recon.onlyLeft"
+      },
+      "sources": [
+        {
+          "name": "recon.onlyLeft",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "count": 0,
+        "sample": []
+      }
+    },
+    {
+      "rule": "empty",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "PASS",
+      "ok": true,
+      "message": "recon.onlyRight 비어 있음",
+      "note": "전표만 있고 정산 내역이 없는 거래",
+      "args": {
+        "target": "recon.onlyRight"
+      },
+      "sources": [
+        {
+          "name": "recon.onlyRight",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "count": 0,
+        "sample": []
+      }
+    },
+    {
+      "rule": "empty",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "PASS",
+      "ok": true,
+      "message": "recon.mismatched 비어 있음",
+      "note": "짝은 찾았지만 금액이 허용오차를 벗어난 거래",
+      "args": {
+        "target": "recon.mismatched"
+      },
+      "sources": [
+        {
+          "name": "recon.mismatched",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "count": 0,
+        "sample": []
+      }
+    },
+    {
+      "rule": "ratio_gte",
+      "ruleVersion": 1,
+      "severity": "review",
+      "verdict": "REVIEW",
+      "ok": false,
+      "message": "비율 0.8000 이 기준 1 에 못 미칩니다",
+      "note": "거래번호가 정확히 일치하지 않은 건이 있다 — 퍼지 매칭 결과를 사람이 확인해야 한다",
+      "args": {
+        "numerator": "recon.counts.exact",
+        "denominator": "recon.counts.left",
+        "min": 1
+      },
+      "sources": [
+        {
+          "name": "recon.counts.exact",
+          "source": "dom"
+        },
+        {
+          "name": "recon.counts.left",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "numerator": 4,
+        "denominator": 5,
+        "ratio": 0.8,
+        "min": 1
+      }
+    }
+  ]
+}

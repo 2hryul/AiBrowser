@@ -1,0 +1,167 @@
+{
+  "verdict": "FAIL",
+  "composition": "최악값 (ADAPTER_BROKEN > FAIL > REVIEW > PASS)",
+  "adapterBroken": null,
+  "downgraded": 0,
+  "outcomes": [
+    {
+      "rule": "sum_equal",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "FAIL",
+      "ok": false,
+      "message": "합계가 72000 만큼 어긋납니다 (4350000 vs 4278000, 허용 0)",
+      "note": "하루 정산 합계와 전표 합계는 원 단위까지 같아야 한다",
+      "args": {
+        "left": "settle_total",
+        "right": "ledger_total",
+        "tolerance": 0
+      },
+      "sources": [
+        {
+          "name": "settle_total",
+          "source": "network"
+        },
+        {
+          "name": "ledger_total",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "left": 4350000,
+        "right": 4278000,
+        "diff": 72000,
+        "tolerance": 0
+      }
+    },
+    {
+      "rule": "empty",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "PASS",
+      "ok": true,
+      "message": "recon.onlyLeft 비어 있음",
+      "note": "정산에 있는데 전표가 없는 거래",
+      "args": {
+        "target": "recon.onlyLeft"
+      },
+      "sources": [
+        {
+          "name": "recon.onlyLeft",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "count": 0,
+        "sample": []
+      }
+    },
+    {
+      "rule": "empty",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "PASS",
+      "ok": true,
+      "message": "recon.onlyRight 비어 있음",
+      "note": "전표만 있고 정산 내역이 없는 거래",
+      "args": {
+        "target": "recon.onlyRight"
+      },
+      "sources": [
+        {
+          "name": "recon.onlyRight",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "count": 0,
+        "sample": []
+      }
+    },
+    {
+      "rule": "empty",
+      "ruleVersion": 1,
+      "severity": "fail",
+      "verdict": "FAIL",
+      "ok": false,
+      "message": "recon.mismatched 에 1건 남음",
+      "note": "짝은 찾았지만 금액이 허용오차를 벗어난 거래",
+      "args": {
+        "target": "recon.mismatched"
+      },
+      "sources": [
+        {
+          "name": "recon.mismatched",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "count": 1,
+        "sample": [
+          {
+            "key": "TX2026030402",
+            "tier": "exact",
+            "left": {
+              "txId": "TX-20260304-02",
+              "date": "2026-03-04",
+              "vendor": "나래정보",
+              "amount": "780,000",
+              "approver": "이서연",
+              "approverNo": "10*****",
+              "txId_n": "TX2026030402",
+              "amount_n": 780000,
+              "date_n": "2026-03-04"
+            },
+            "right": {
+              "voucherNo": "V-20260304-02",
+              "txId": "TX-20260304-02",
+              "vendor": "나래정보",
+              "amount": "708,000",
+              "date": "2026-03-04",
+              "txId_n": "TX2026030402",
+              "amount_n": 708000,
+              "date_n": "2026-03-04"
+            },
+            "diff": -72000,
+            "review": false
+          }
+        ]
+      }
+    },
+    {
+      "rule": "ratio_gte",
+      "ruleVersion": 1,
+      "severity": "review",
+      "verdict": "PASS",
+      "ok": true,
+      "message": "비율 1.0000 ≥ 1",
+      "note": "거래번호가 정확히 일치하지 않은 건이 있다 — 퍼지 매칭 결과를 사람이 확인해야 한다",
+      "args": {
+        "numerator": "recon.counts.exact",
+        "denominator": "recon.counts.left",
+        "min": 1
+      },
+      "sources": [
+        {
+          "name": "recon.counts.exact",
+          "source": "dom"
+        },
+        {
+          "name": "recon.counts.left",
+          "source": "dom"
+        }
+      ],
+      "downgraded": false,
+      "detail": {
+        "numerator": 5,
+        "denominator": 5,
+        "ratio": 1,
+        "min": 1
+      }
+    }
+  ]
+}

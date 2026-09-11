@@ -90,3 +90,46 @@ M4b 의 도구 스키마는 이 원칙을 따라야 한다.
   성공률은 같은 이름의 다른 숫자다 — 그래서 이 표에는 **모델 이름을 반드시 함께 적는다.**
 - 모델 교체는 사람 결정이다(GOAL-M4 STOP CONDITIONS).
 
+
+## settle_vs_ledger_daily — 골든셋 회귀 (2026-09-11)
+
+대상 20일치 · 심긴 불일치 6건 · 정답표 `golden/settle_vs_ledger_daily/expected/`
+
+| 지표 | 값 |
+| --- | --- |
+| 정확도(판정 일치) | 100.0% (20/20) |
+| 재현율(불일치 검출) | 100.0% (6/6) |
+| REVIEW 비율 | 5.0% (1/20) |
+| **오탐(잘못된 PASS)** | **0** |
+| 오경보(정상인데 PASS 아님) | 0 |
+| 검출 내용 불일치 | 0 |
+| 증거 팩 결함 | 0 |
+| 승인 요청(domain 응답) | 3 |
+
+| 날짜 | 기대 | 실제 | 근거 오라클 | 획득 경로 | 증거 |
+| --- | --- | --- | --- | --- | --- |
+| 2026-03-02 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-03 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-04 | FAIL | FAIL | sum_equal(FAIL), empty(FAIL) | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 32 |
+| 2026-03-05 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-06 | FAIL | FAIL | sum_equal(FAIL), empty(FAIL), ratio_gte(REVIEW) | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-09 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-10 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-11 | FAIL | FAIL | sum_equal(FAIL), empty(FAIL) | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 32 |
+| 2026-03-12 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-13 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-16 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-17 | FAIL | FAIL | sum_equal(FAIL), empty(FAIL) | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-18 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-19 | FAIL | FAIL | sum_equal(FAIL), empty(FAIL) | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 32 |
+| 2026-03-20 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-23 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-24 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-25 | REVIEW | REVIEW | ratio_gte(REVIEW) | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-26 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+| 2026-03-27 | PASS | PASS | — | portal_settle_daily:network · portal_ledger_daily:dom | png 2 · `***` 30 |
+
+승인 기록: 2026-03-02 site:portal-h-settle@portal-h-settle · 2026-03-02 site:portal-h-ledger@portal-h-ledger · 2026-03-02 download@portal-h-ledger
+
+> 승인은 러너가 사람 역할로 `domain` 범위로 답했다. 허용 목록(`site:portal-h-settle`, `site:portal-h-ledger`, `download`) 밖의 요청에는 답하지 않는다 — 자동 승인 플래그는 없다.
+

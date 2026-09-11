@@ -1,0 +1,230 @@
+{
+  "runId": "eval-2026-03-25",
+  "workflowId": "settle_vs_ledger_daily",
+  "workflowVersion": 1,
+  "adapterVersions": {
+    "portal_settle_daily": 1,
+    "portal_ledger_daily": 1
+  },
+  "ruleVersions": {
+    "sum_equal": 1,
+    "empty": 1,
+    "ratio_gte": 1
+  },
+  "inputs": {
+    "date": "2026-03-25"
+  },
+  "status": "done",
+  "verdict": "REVIEW",
+  "adapterBroken": null,
+  "startedAt": "2026-09-11T06:37:03.065Z",
+  "finishedAt": "2026-09-11T06:37:04.047Z",
+  "durationMs": 982,
+  "steps": [
+    {
+      "id": "fetch_settle",
+      "kind": "adapter",
+      "name": "portal_settle_daily",
+      "as": "settle",
+      "source": "network",
+      "startedAt": 1789108623065,
+      "durationMs": 441,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": "D:\\SOURCE\\aiBrowser\\artifacts\\m5\\evidence\\eval-2026-03-25\\steps\\0001-fetch_settle-settle.png",
+      "note": "정산 API 5건"
+    },
+    {
+      "id": "fetch_ledger",
+      "kind": "adapter",
+      "name": "portal_ledger_daily",
+      "as": "ledger",
+      "source": "dom",
+      "startedAt": 1789108623506,
+      "durationMs": 537,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": "D:\\SOURCE\\aiBrowser\\artifacts\\m5\\evidence\\eval-2026-03-25\\steps\\0002-fetch_ledger-ledger.png",
+      "note": "회계 화면 5건 · xlsx 5건 대조"
+    },
+    {
+      "id": "normalize_settle",
+      "kind": "op",
+      "name": "normalize",
+      "as": "settle_n",
+      "source": "network",
+      "startedAt": 1789108624043,
+      "durationMs": 1,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "normalize_ledger",
+      "kind": "op",
+      "name": "normalize",
+      "as": "ledger_n",
+      "source": "dom",
+      "startedAt": 1789108624044,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "match",
+      "kind": "op",
+      "name": "reconcile",
+      "as": "recon",
+      "source": "dom",
+      "startedAt": 1789108624044,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "total_settle",
+      "kind": "op",
+      "name": "aggregate",
+      "as": "settle_total",
+      "source": "network",
+      "startedAt": 1789108624044,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "total_ledger",
+      "kind": "op",
+      "name": "aggregate",
+      "as": "ledger_total",
+      "source": "dom",
+      "startedAt": 1789108624044,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    }
+  ],
+  "outputs": {
+    "settleRows": 5,
+    "ledgerRows": 5,
+    "exact": 4,
+    "fuzzy": 1,
+    "settleTotal": 6975000,
+    "ledgerTotal": 6975000,
+    "onlyLeftRows": {
+      "count": 0,
+      "sample": []
+    },
+    "onlyRightRows": {
+      "count": 0,
+      "sample": []
+    },
+    "mismatchedRows": {
+      "count": 0,
+      "sample": []
+    },
+    "matches": {
+      "count": 5,
+      "sample": [
+        {
+          "key": "TX2026032501",
+          "tier": "exact",
+          "left": {
+            "txId": "TX-20260325-01",
+            "date": "2026-03-25",
+            "vendor": "가온클라우드",
+            "amount": "1,215,000",
+            "approver": "***",
+            "approverNo": "***",
+            "txId_n": "TX2026032501",
+            "amount_n": 1215000,
+            "date_n": "2026-03-25"
+          },
+          "right": {
+            "voucherNo": "V-20260325-01",
+            "txId": "TX-20260325-01",
+            "vendor": "가온클라우드",
+            "amount": "1,215,000",
+            "date": "2026-03-25",
+            "txId_n": "TX2026032501",
+            "amount_n": 1215000,
+            "date_n": "2026-03-25"
+          },
+          "diff": 0,
+          "review": false
+        },
+        {
+          "key": "TX2026032502",
+          "tier": "exact",
+          "left": {
+            "txId": "TX-20260325-02",
+            "date": "2026-03-25",
+            "vendor": "나래정보",
+            "amount": "1,305,000",
+            "approver": "***",
+            "approverNo": "***",
+            "txId_n": "TX2026032502",
+            "amount_n": 1305000,
+            "date_n": "2026-03-25"
+          },
+          "right": {
+            "voucherNo": "V-20260325-02",
+            "txId": "TX-20260325-02",
+            "vendor": "나래정보",
+            "amount": "1,305,000",
+            "date": "2026-03-25",
+            "txId_n": "TX2026032502",
+            "amount_n": 1305000,
+            "date_n": "2026-03-25"
+          },
+          "diff": 0,
+          "review": false
+        },
+        {
+          "key": "TX2026032504",
+          "tier": "exact",
+          "left": {
+            "txId": "TX-20260325-04",
+            "date": "2026-03-25",
+            "vendor": "라온소프트",
+            "amount": "1,485,000",
+            "approver": "***",
+            "approverNo": "***",
+            "txId_n": "TX2026032504",
+            "amount_n": 1485000,
+            "date_n": "2026-03-25"
+          },
+          "right": {
+            "voucherNo": "V-20260325-04",
+            "txId": "TX-20260325-04",
+            "vendor": "라온소프트",
+            "amount": "1,485,000",
+            "date": "2026-03-25",
+            "txId_n": "TX2026032504",
+            "amount_n": 1485000,
+            "date_n": "2026-03-25"
+          },
+          "diff": 0,
+          "review": false
+        }
+      ]
+    }
+  },
+  "evidencePath": "D:\\SOURCE\\aiBrowser\\artifacts\\m5\\evidence\\eval-2026-03-25"
+}

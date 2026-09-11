@@ -1,0 +1,37 @@
+{
+  "ladder_network": {
+    "settle": "network",
+    "ledger": "dom",
+    "verdict": "PASS",
+    "screenshots": 2
+  },
+  "ladder_fallback": {
+    "source": "dom",
+    "apiStatus": 503,
+    "verdict": "PASS"
+  },
+  "promote_draft_shot": "promote-draft.png",
+  "promote_reject_shot": "promote-reject.png",
+  "promote_saved_shot": "promote-panel.png",
+  "promote": {
+    "threadId": "promote-source",
+    "draftId": "settle_vs_ledger_daily",
+    "savedId": "settle_vs_ledger_promoted",
+    "rejected": "error",
+    "todo": 1,
+    "promotedVerdict": "PASS"
+  },
+  "inbox_shot": "schedule-inbox.png",
+  "schedule": {
+    "cron": "0 43 15 * * *",
+    "kind": "result",
+    "title": "settle_vs_ledger_daily 2026-03-02 — PASS",
+    "evidencePath": "D:\\SOURCE\\aiBrowser\\artifacts\\m5\\e2e\\evidence\\settle_vs_ledger_daily-m5-eval-minute-mtwlak30",
+    "runCount": 1
+  },
+  "approvals": [
+    "site:portal-h-settle@portal-h-settle",
+    "site:portal-h-ledger@portal-h-ledger",
+    "download@portal-h-ledger"
+  ]
+}

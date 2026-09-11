@@ -1,0 +1,258 @@
+{
+  "runId": "eval-2026-03-04",
+  "workflowId": "settle_vs_ledger_daily",
+  "workflowVersion": 1,
+  "adapterVersions": {
+    "portal_settle_daily": 1,
+    "portal_ledger_daily": 1
+  },
+  "ruleVersions": {
+    "sum_equal": 1,
+    "empty": 1,
+    "ratio_gte": 1
+  },
+  "inputs": {
+    "date": "2026-03-04"
+  },
+  "status": "done",
+  "verdict": "FAIL",
+  "adapterBroken": null,
+  "startedAt": "2026-09-11T06:36:48.201Z",
+  "finishedAt": "2026-09-11T06:36:49.203Z",
+  "durationMs": 1002,
+  "steps": [
+    {
+      "id": "fetch_settle",
+      "kind": "adapter",
+      "name": "portal_settle_daily",
+      "as": "settle",
+      "source": "network",
+      "startedAt": 1789108608201,
+      "durationMs": 423,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": "D:\\SOURCE\\aiBrowser\\artifacts\\m5\\evidence\\eval-2026-03-04\\steps\\0001-fetch_settle-settle.png",
+      "note": "정산 API 5건"
+    },
+    {
+      "id": "fetch_ledger",
+      "kind": "adapter",
+      "name": "portal_ledger_daily",
+      "as": "ledger",
+      "source": "dom",
+      "startedAt": 1789108608624,
+      "durationMs": 576,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": "D:\\SOURCE\\aiBrowser\\artifacts\\m5\\evidence\\eval-2026-03-04\\steps\\0002-fetch_ledger-ledger.png",
+      "note": "회계 화면 5건 · xlsx 5건 대조"
+    },
+    {
+      "id": "normalize_settle",
+      "kind": "op",
+      "name": "normalize",
+      "as": "settle_n",
+      "source": "network",
+      "startedAt": 1789108609200,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "normalize_ledger",
+      "kind": "op",
+      "name": "normalize",
+      "as": "ledger_n",
+      "source": "dom",
+      "startedAt": 1789108609200,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "match",
+      "kind": "op",
+      "name": "reconcile",
+      "as": "recon",
+      "source": "dom",
+      "startedAt": 1789108609200,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "total_settle",
+      "kind": "op",
+      "name": "aggregate",
+      "as": "settle_total",
+      "source": "network",
+      "startedAt": 1789108609200,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "total_ledger",
+      "kind": "op",
+      "name": "aggregate",
+      "as": "ledger_total",
+      "source": "dom",
+      "startedAt": 1789108609200,
+      "durationMs": 0,
+      "attempts": 1,
+      "ok": true,
+      "error": null,
+      "screenshot": null,
+      "note": null
+    }
+  ],
+  "outputs": {
+    "settleRows": 5,
+    "ledgerRows": 5,
+    "exact": 5,
+    "fuzzy": 0,
+    "settleTotal": 4350000,
+    "ledgerTotal": 4278000,
+    "onlyLeftRows": {
+      "count": 0,
+      "sample": []
+    },
+    "onlyRightRows": {
+      "count": 0,
+      "sample": []
+    },
+    "mismatchedRows": {
+      "count": 1,
+      "sample": [
+        {
+          "key": "TX2026030402",
+          "tier": "exact",
+          "left": {
+            "txId": "TX-20260304-02",
+            "date": "2026-03-04",
+            "vendor": "나래정보",
+            "amount": "780,000",
+            "approver": "***",
+            "approverNo": "***",
+            "txId_n": "TX2026030402",
+            "amount_n": 780000,
+            "date_n": "2026-03-04"
+          },
+          "right": {
+            "voucherNo": "V-20260304-02",
+            "txId": "TX-20260304-02",
+            "vendor": "나래정보",
+            "amount": "708,000",
+            "date": "2026-03-04",
+            "txId_n": "TX2026030402",
+            "amount_n": 708000,
+            "date_n": "2026-03-04"
+          },
+          "diff": -72000,
+          "review": false
+        }
+      ]
+    },
+    "matches": {
+      "count": 5,
+      "sample": [
+        {
+          "key": "TX2026030401",
+          "tier": "exact",
+          "left": {
+            "txId": "TX-20260304-01",
+            "date": "2026-03-04",
+            "vendor": "가온클라우드",
+            "amount": "690,000",
+            "approver": "***",
+            "approverNo": "***",
+            "txId_n": "TX2026030401",
+            "amount_n": 690000,
+            "date_n": "2026-03-04"
+          },
+          "right": {
+            "voucherNo": "V-20260304-01",
+            "txId": "TX-20260304-01",
+            "vendor": "가온클라우드",
+            "amount": "690,000",
+            "date": "2026-03-04",
+            "txId_n": "TX2026030401",
+            "amount_n": 690000,
+            "date_n": "2026-03-04"
+          },
+          "diff": 0,
+          "review": false
+        },
+        {
+          "key": "TX2026030402",
+          "tier": "exact",
+          "left": {
+            "txId": "TX-20260304-02",
+            "date": "2026-03-04",
+            "vendor": "나래정보",
+            "amount": "780,000",
+            "approver": "***",
+            "approverNo": "***",
+            "txId_n": "TX2026030402",
+            "amount_n": 780000,
+            "date_n": "2026-03-04"
+          },
+          "right": {
+            "voucherNo": "V-20260304-02",
+            "txId": "TX-20260304-02",
+            "vendor": "나래정보",
+            "amount": "708,000",
+            "date": "2026-03-04",
+            "txId_n": "TX2026030402",
+            "amount_n": 708000,
+            "date_n": "2026-03-04"
+          },
+          "diff": -72000,
+          "review": false
+        },
+        {
+          "key": "TX2026030403",
+          "tier": "exact",
+          "left": {
+            "txId": "TX-20260304-03",
+            "date": "2026-03-04",
+            "vendor": "다온시스템",
+            "amount": "870,000",
+            "approver": "***",
+            "approverNo": "***",
+            "txId_n": "TX2026030403",
+            "amount_n": 870000,
+            "date_n": "2026-03-04"
+          },
+          "right": {
+            "voucherNo": "V-20260304-03",
+            "txId": "TX-20260304-03",
+            "vendor": "다온시스템",
+            "amount": "870,000",
+            "date": "2026-03-04",
+            "txId_n": "TX2026030403",
+            "amount_n": 870000,
+            "date_n": "2026-03-04"
+          },
+          "diff": 0,
+          "review": false
+        }
+      ]
+    }
+  },
+  "evidencePath": "D:\\SOURCE\\aiBrowser\\artifacts\\m5\\evidence\\eval-2026-03-04"
+}
