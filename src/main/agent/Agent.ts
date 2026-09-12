@@ -85,7 +85,7 @@ export interface AgentDeps {
   proposeSiteNote?: (input: { threadId: string; host: string; text: string }) => void;
   saveCheckpoint?: (
     threadId: string,
-    input: { name: string; trigger: 'auto' | 'manual' | 'ask_user'; cursor?: Record<string, unknown> }
+    input: { name: string; trigger: 'steps' | 'manual' | 'ask_user'; cursor?: Record<string, unknown> }
   ) => Promise<unknown>;
 }
 
@@ -358,7 +358,7 @@ export class Agent {
 
         if (isPaused(result)) {
           this.deps.threads.setStatus(threadId, 'paused', 'user_intervened');
-          await this.checkpoint(threadId, 'auto', steps);
+          await this.checkpoint(threadId, 'steps', steps);
           return {
             status: 'paused',
             steps,
@@ -414,7 +414,7 @@ export class Agent {
       }
 
       if (steps % CHECKPOINT_EVERY === 0) {
-        await this.checkpoint(threadId, 'auto', steps, { lastUrl, rows: collector.size });
+        await this.checkpoint(threadId, 'steps', steps, { lastUrl, rows: collector.size });
       }
     }
   }
@@ -519,7 +519,7 @@ export class Agent {
 
   private async checkpoint(
     threadId: string,
-    trigger: 'auto' | 'manual' | 'ask_user',
+    trigger: 'steps' | 'manual' | 'ask_user',
     steps: number,
     cursor?: Record<string, unknown>
   ): Promise<void> {

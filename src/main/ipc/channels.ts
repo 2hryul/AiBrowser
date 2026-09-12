@@ -146,6 +146,15 @@ export const IPC = {
   resultsChanged: 'helm:results:changed',
   resultsExport: 'helm:results:export',
 
+  // ── M4b 내장 에이전트 ───────────────────────────────
+  agentStatus: 'helm:agent:status',
+  agentRun: 'helm:agent:run',
+  agentStop: 'helm:agent:stop',
+  agentRunning: 'helm:agent:running',
+  /** 메인 → 렌더러. 사이트 메모 제안 — 사람이 확인해야 저장된다(자동 저장 아님). */
+  agentNoteProposal: 'helm:agent:note-proposal',
+  agentNoteAccept: 'helm:agent:note-accept',
+
   // ── M5 검증 계층 ────────────────────────────────────
   workflowsGet: 'helm:workflows:get',
   workflowRun: 'helm:workflows:run',

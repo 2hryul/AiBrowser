@@ -42,9 +42,12 @@ import { ChangeTracker } from './persistence/ChangeTracker';
 import { AuditLog } from './audit/AuditLog';
 import { startConsoleCapture } from './tools/read_console_messages';
 import { registerAllTools } from './tools/register';
+import { listTools } from './tools/index';
 import { captureMasked } from './tools/computer';
 import type { ToolContext } from './tools/index';
 import { HelmMcpServer, type McpEndpointInfo } from './mcp/Server';
+import { Agent, type AgentOutcome } from './agent/Agent';
+import { createAgentRuntime, type LLMClient, type MacroCache } from './agent/runtime';
 import { IPC } from './ipc/channels';
 import {
   LAYOUT,
@@ -130,6 +133,16 @@ const lastResults = new Map<string, unknown[]>();
  * 자동 저장이 커서 없이 덮이면 "가장 최근 체크포인트에서 재개" 가 처음부터 다시 하기가 된다.
  */
 const lastCursor = new Map<string, Record<string, unknown>>();
+
+// ── M4b 내장 에이전트 ──
+let llmClient: LLMClient | null = null;
+let macroCache: MacroCache | null = null;
+/** 도구 호출 지원 확인은 한 번만. 기동 때 하면 모델 적재로 첫 실행이 1분 늦어진다. */
+let toolSupportProbed = false;
+/** 지금 도는 에이전트. 사람이 "여기까지" 를 누르면 이 신호를 끊는다. */
+const runningAgents = new Map<string, AbortController>();
+/** 사람 확인을 기다리는 사이트 메모 제안. 자동 저장하지 않는다(GOAL-M4 성공 조건 6). */
+let pendingNoteProposal: { threadId: string; host: string; text: string } | null = null;
 
 /** 마지막으로 셸에 보낸 AI 상태. 셸이 늦게 붙어도 현재 상태를 받을 수 있게 보관한다. */
 let aiState: AiState = {
@@ -936,6 +949,93 @@ function createToolContext(threadId: string, source = 'mcp'): ToolContext {
   };
 }
 
+/**
+ * 내장 에이전트를 만든다. 설정(`config/llm.json`)이 없으면 `null` 이고, 그때는 사이드바에서
+ * 지시를 받아도 "모델이 설정되지 않았다" 고 답한다 — 브라우저는 그대로 쓸 수 있어야 한다.
+ */
+function createAgent(threadId: string): Agent | null {
+  if (!llmClient || !macroCache || !threadStore || !noteStore || !inbox || !bookmarkMeta) {
+    return null;
+  }
+
+  const macros = macroCache;
+
+  return new Agent({
+    llm: llmClient,
+    threads: threadStore,
+    notes: noteStore,
+    inbox,
+    bookmarks: bookmarkMeta,
+    macros,
+    // 에이전트도 사람과 같은 문을 지난다 — 정책·승인·마스킹·감사 로그가 여기 붙어 있다.
+    callTool: async (name, args) => {
+      const { callTool: dispatch } = await import('./tools/index');
+      return dispatch(createToolContext(threadId, 'agent'), name, args);
+    },
+    toolDefs: () => {
+      registerAllTools();
+      return listTools();
+    },
+    setResults: (id, rows) => {
+      lastResults.set(id, rows);
+      sendToShell(IPC.resultsChanged, { threadId: id, rows });
+    },
+    proposeSiteNote: (input) => {
+      // 자동 저장하지 않는다. 사람이 사이드바에서 받아야 메모가 된다.
+      pendingNoteProposal = input;
+      sendToShell(IPC.agentNoteProposal, input);
+    },
+    saveCheckpoint: (id, input) =>
+      saveCheckpointFor(id, {
+        name: input.name,
+        trigger: input.trigger,
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor })
+      })
+  });
+}
+
+/** 사이드바·E2E 가 함께 쓰는 실행 진입점. */
+async function runAgent(
+  threadId: string,
+  instruction: string,
+  options: { keyColumns?: string[]; expectedCount?: number | null } = {}
+): Promise<AgentOutcome | null> {
+  const agent = createAgent(threadId);
+  if (!agent || !llmClient) return null;
+
+  ensureThread(threadId, instruction.slice(0, 40));
+  llmClient.bindAudit(auditLog, threadId);
+
+  // 도구 호출을 못 하는 모델이면 경고만 남기고 계속 간다(GOAL-M4 FIXED DECISIONS).
+  // 첫 실행에서 한 번만 — 기동 때 하면 모델 적재로 앱이 1분 늦게 뜬다.
+  if (!toolSupportProbed) {
+    toolSupportProbed = true;
+    const probe = await llmClient.probeToolSupport();
+    if (!probe.supported) {
+      console.warn(`[agent] 모델이 도구 호출을 지원하지 않는다 - ${llmClient.model} · ${probe.detail}`);
+    }
+  }
+
+  const controller = new AbortController();
+  runningAgents.set(threadId, controller);
+  sendToShell(IPC.agentRunning, { threadId, running: true });
+
+  try {
+    return await agent.run({
+      threadId,
+      instruction,
+      signal: controller.signal,
+      ...(options.keyColumns === undefined ? {} : { keyColumns: options.keyColumns }),
+      ...(options.expectedCount === undefined ? {} : { expectedCount: options.expectedCount })
+    });
+  } finally {
+    runningAgents.delete(threadId);
+    macroCache?.save();
+    pushThreads();
+    sendToShell(IPC.agentRunning, { threadId, running: false });
+  }
+}
+
 /** MCP 서버 기동. 실패해도 브라우저는 정상 동작해야 한다. */
 async function startMcpServer(): Promise<void> {
   if (mcpServer) return;
@@ -1371,6 +1471,58 @@ function registerIpc(): void {
   });
 
   /** 사이드바에서 사람이 한 마디 보탠다. 앱을 다시 켠 뒤에도 같은 스레드에 이어진다. */
+  // ── M4b 내장 에이전트 ──
+
+  ipcMain.handle(IPC.agentStatus, () => ({
+    available: llmClient !== null,
+    provider: llmClient?.config.provider ?? null,
+    model: llmClient?.model ?? null,
+    macros: macroCache?.size ?? 0,
+    running: [...runningAgents.keys()]
+  }));
+
+  /**
+   * 사이드바 입력칸(Composer)의 단일 진입점.
+   *
+   * 가벼운 요청("이 페이지 요약해줘")과 작업 지시("공지 200건 뽑아")를 **같은 입력으로** 받는다
+   * (GOAL-M4 IN SCOPE). 둘을 가르는 것은 사람이 아니라 지시문이다 — 목표 건수가 읽히면
+   * 수집 작업이고, 아니면 모델이 한두 단계로 답하고 끝난다.
+   */
+  ipcMain.handle(IPC.agentRun, async (_e, threadId: unknown, instruction: unknown) => {
+    if (typeof threadId !== 'string' || typeof instruction !== 'string') return null;
+    if (instruction.trim() === '') return null;
+
+    if (!llmClient) {
+      return { status: 'failed', reason: 'no_model', summary: 'config/llm.json 이 없습니다' };
+    }
+    if (runningAgents.has(threadId)) {
+      return { status: 'failed', reason: 'already_running', summary: '이미 도는 중입니다' };
+    }
+
+    return await runAgent(threadId, instruction);
+  });
+
+  /** "여기까지" — 도는 에이전트를 끊는다. 사람이 우선권을 가진다(불변 조건 3). */
+  ipcMain.handle(IPC.agentStop, (_e, threadId: unknown) => {
+    if (typeof threadId !== 'string') return false;
+    const controller = runningAgents.get(threadId);
+    if (!controller) return false;
+
+    controller.abort();
+    return true;
+  });
+
+  /** 사이트 메모 제안 받기 — 사람이 눌러야 저장된다. */
+  ipcMain.handle(IPC.agentNoteAccept, (_e, accept: unknown) => {
+    const proposal = pendingNoteProposal;
+    pendingNoteProposal = null;
+    if (accept !== true || !proposal || !noteStore) return null;
+
+    const result = noteStore.append(`site:${proposal.host}`, proposal.text);
+    sendToShell(IPC.notesGet);
+    return result;
+  });
+
   ipcMain.handle(IPC.threadSay, (_e, threadId: unknown, text: unknown) => {
     if (typeof threadId !== 'string' || typeof text !== 'string' || !threadStore) return null;
     if (text.trim() === '') return null;
@@ -1789,6 +1941,17 @@ void app.whenReady().then(async () => {
   bookmarkMeta = new BookmarkMeta(database);
   changeTracker = new ChangeTracker(database);
 
+  // ── M4b 내장 에이전트 ──
+  // 엔드포인트는 설정된 하나뿐이다(CLAUDE.md CONSTRAINTS). 설정이 없으면 에이전트만 끄고
+  // 브라우저는 그대로 간다 — LLM 이 없다고 탭을 못 열 이유가 없다.
+  const runtime = createAgentRuntime(configDir(), app.getPath('userData'));
+  if (runtime) {
+    llmClient = runtime.llm;
+    macroCache = runtime.macros;
+  } else {
+    console.warn('[agent] config/llm.json 이 없어 내장 에이전트를 끕니다. 브라우저는 정상 동작합니다.');
+  }
+
   // ── M5 검증 계층 ──
   // 워크플로우는 사람이 쓰는 것과 같은 문(ToolSurface)을 지난다 — 정책·마스킹·감사 로그가
   // 거기 붙어 있다. 증거 팩 위치는 테스트가 저장소 안으로 돌릴 수 있게 환경변수로 연다.
@@ -1938,6 +2101,33 @@ void app.whenReady().then(async () => {
         const { toolNames } = await import('./tools/register');
         return toolNames();
       },
+      // ── M4b 내장 에이전트 ──
+      agentInfo: () => ({
+        available: llmClient !== null,
+        provider: llmClient?.config.provider ?? null,
+        model: llmClient?.model ?? null,
+        macros: macroCache?.size ?? 0
+      }),
+      runAgent: (
+        threadId: string,
+        instruction: string,
+        options?: { keyColumns?: string[]; expectedCount?: number | null }
+      ) => runAgent(threadId, instruction, options ?? {}),
+      stopAgent: (threadId: string) => {
+        const controller = runningAgents.get(threadId);
+        if (!controller) return false;
+        controller.abort();
+        return true;
+      },
+      clearMacros: () => macroCache?.clear(),
+      noteProposal: () => pendingNoteProposal,
+      acceptNoteProposal: () => {
+        const proposal = pendingNoteProposal;
+        pendingNoteProposal = null;
+        if (!proposal || !noteStore) return null;
+        return noteStore.append(`site:${proposal.host}`, proposal.text);
+      },
+
       // ── M4a 지속성 ──
       getSessionStore: () => sessionStore,
       getThreadStore: () => threadStore,

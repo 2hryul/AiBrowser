@@ -376,6 +376,17 @@ interface HelmWorkflowDraft {
   inputs: string[];
 }
 
+interface HelmAgentOutcome {
+  status: 'done' | 'failed' | 'paused' | 'stopped';
+  steps: number;
+  llmCalls: number;
+  macroHits: number;
+  rows: number;
+  duplicates: number;
+  summary: string;
+  reason: string | null;
+}
+
 interface HelmE2EHook {
   // M0/M1
   getTabManager: () => HelmTabManagerHook | null;
@@ -420,6 +431,23 @@ interface HelmE2EHook {
   piiSamples: () => Promise<{ employeeNo: string; phone: string; email: string }[]>;
   portalTeams: () => Promise<string[]>;
   wikiDefects: () => Promise<string[]>;
+
+  // M4b
+  agentInfo: () => {
+    available: boolean;
+    provider: 'openai' | 'anthropic' | null;
+    model: string | null;
+    macros: number;
+  };
+  runAgent: (
+    threadId: string,
+    instruction: string,
+    options?: { keyColumns?: string[]; expectedCount?: number | null }
+  ) => Promise<HelmAgentOutcome | null>;
+  stopAgent: (threadId: string) => boolean;
+  clearMacros: () => void;
+  noteProposal: () => { threadId: string; host: string; text: string } | null;
+  acceptNoteProposal: () => unknown;
 
   // M4a
   getSessionStore: () => HelmSessionStoreHook | null;
