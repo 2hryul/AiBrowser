@@ -5,6 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import helmRules from './eslint-rules/no-credential-files.mjs';
 import toolRules from './eslint-rules/require-tool-inverse.mjs';
 import llmRules from './eslint-rules/restrict-llm-import.mjs';
+import agentRules from './eslint-rules/agent-tools-only.mjs';
 
 export default tseslint.config(
   {
@@ -75,6 +76,14 @@ export default tseslint.config(
     plugins: { helmLlm: llmRules },
     rules: {
       'helmLlm/restrict-llm-import': 'error'
+    }
+  },
+  {
+    // GOAL-M4: 에이전트가 브라우저를 만지는 길은 ToolSurface 하나뿐이다.
+    files: ['src/main/agent/**/*.ts'],
+    plugins: { helmAgent: agentRules },
+    rules: {
+      'helmAgent/agent-tools-only': 'error'
     }
   },
   {
