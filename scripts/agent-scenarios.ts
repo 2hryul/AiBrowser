@@ -198,11 +198,18 @@ test.afterAll(async () => {
   summary['approvals'] = approvals;
   summary['prompts'] = prompted;
 
-  fs.writeFileSync(
-    path.join(ARTIFACTS, 'agent-summary.json'),
-    `${JSON.stringify(summary, null, 2)}\n`,
-    'utf-8'
-  );
+  const body = `${JSON.stringify(summary, null, 2)}\n`;
+
+  /**
+   * 모델 이름을 파일명에 넣어 함께 남긴다.
+   *
+   * 같은 시나리오를 다른 모델로 돌려 비교하는 일이 실제로 생긴다("설계 문제인가 모델
+   * 문제인가"). 한 파일에 덮어쓰면 비교할 앞의 결과가 사라진다.
+   */
+  const tag = String(summary['model'] ?? 'unknown').replace(/[^\w.-]+/g, '_');
+
+  fs.writeFileSync(path.join(ARTIFACTS, `agent-summary-${tag}.json`), body, 'utf-8');
+  fs.writeFileSync(path.join(ARTIFACTS, 'agent-summary.json'), body, 'utf-8');
   await app.close();
 });
 

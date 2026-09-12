@@ -54,6 +54,37 @@ function isProvider(value: unknown): value is LLMProvider {
  * `config/llm.json` 을 읽는다. 파일이 없거나 형식이 어긋나면 `null` —
  * 기동을 세우지 않는다. LLM 이 없다고 브라우저를 못 쓰게 만들 이유가 없다.
  */
+/**
+ * 환경변수로 설정을 덮어쓴다.
+ *
+ * 왜 필요한가 — "같은 에이전트를 다른 모델로 돌려 보고 비교한다" 는 일이 실제로 생긴다
+ * (설계 문제인지 모델 문제인지 가르는 것). 그때마다 추적되는 `config/llm.json` 을 고치면
+ * 비교 실행이 저장소에 흔적을 남기고, 되돌리는 것을 잊으면 다음 사람이 다른 설정으로 돈다.
+ *
+ * 값은 여전히 **키가 아니라 키의 환경변수 이름**이다(`HELM_LLM_API_KEY_ENV`).
+ */
+function applyEnvOverrides(config: LLMConfig): LLMConfig {
+  const provider = process.env['HELM_LLM_PROVIDER'];
+  const baseUrl = process.env['HELM_LLM_BASE_URL'];
+  const model = process.env['HELM_LLM_MODEL'];
+  const apiKeyEnv = process.env['HELM_LLM_API_KEY_ENV'];
+  const maxOutput = Number(process.env['HELM_LLM_MAX_OUTPUT'] ?? '');
+
+  const next: LLMConfig = { ...config };
+
+  if (isProvider(provider)) next.provider = provider;
+  if (baseUrl) next.baseUrl = baseUrl;
+  if (model) next.model = model;
+  if (apiKeyEnv) next.apiKey = process.env[apiKeyEnv] ?? '';
+  if (Number.isFinite(maxOutput) && maxOutput > 0) next.maxOutputTokens = maxOutput;
+
+  if (next.provider !== config.provider || next.model !== config.model) {
+    console.warn(`[llm] 환경변수 덮어쓰기 - ${next.provider} · ${next.model}`);
+  }
+
+  return next;
+}
+
 export function loadLLMConfig(configDir: string): LLMConfig | null {
   const file = path.join(configDir, 'llm.json');
 
@@ -82,7 +113,7 @@ export function loadLLMConfig(configDir: string): LLMConfig | null {
       console.warn(`[llm] 환경변수 ${apiKeyEnv} 가 비어 있다 - 인증 없이 호출한다`);
     }
 
-    return {
+    return applyEnvOverrides({
       provider: parsed.provider,
       baseUrl: parsed.baseUrl,
       apiKey,
@@ -90,7 +121,7 @@ export function loadLLMConfig(configDir: string): LLMConfig | null {
       maxPromptTokens: parsed.maxPromptTokens ?? DEFAULT_MAX_PROMPT_TOKENS,
       maxOutputTokens: parsed.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
       timeoutMs: parsed.timeoutMs ?? DEFAULT_TIMEOUT_MS
-    };
+    });
   } catch (error) {
     console.error(`[llm] 설정 읽기 실패 - 경로: ${file}`, error);
     return null;

@@ -348,3 +348,67 @@ describe('LLMClient 호출', () => {
     expect(client.calibrationFactor).toBeGreaterThan(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// 환경변수 덮어쓰기 — 비교 실행이 추적 파일을 건드리지 않게
+// ─────────────────────────────────────────────────────────────
+
+describe('환경변수 덮어쓰기', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'helm-llm-env-'));
+
+  beforeAll(() => {
+    fs.writeFileSync(
+      path.join(dir, 'llm.json'),
+      JSON.stringify({
+        provider: 'openai',
+        baseUrl: 'http://127.0.0.1:11434/v1/chat/completions',
+        model: 'qwen2.5:7b-instruct'
+      })
+    );
+  });
+
+  afterAll(() => {
+    for (const name of [
+      'HELM_LLM_PROVIDER',
+      'HELM_LLM_BASE_URL',
+      'HELM_LLM_MODEL',
+      'HELM_LLM_API_KEY_ENV',
+      'HELM_LLM_MAX_OUTPUT',
+      'HELM_TEST_ANTHROPIC_KEY'
+    ]) {
+      delete process.env[name];
+    }
+  });
+
+  it('덮어쓰지 않으면 파일 그대로다', () => {
+    const config = loadLLMConfig(dir);
+
+    expect(config?.provider).toBe('openai');
+    expect(config?.model).toBe('qwen2.5:7b-instruct');
+  });
+
+  it('공급자·모델·키 환경변수를 갈아 끼운다', () => {
+    process.env['HELM_LLM_PROVIDER'] = 'anthropic';
+    process.env['HELM_LLM_BASE_URL'] = 'https://api.anthropic.com/v1/messages';
+    process.env['HELM_LLM_MODEL'] = 'claude-opus-5';
+    process.env['HELM_LLM_API_KEY_ENV'] = 'HELM_TEST_ANTHROPIC_KEY';
+    process.env['HELM_TEST_ANTHROPIC_KEY'] = 'sk-ant-from-env';
+    process.env['HELM_LLM_MAX_OUTPUT'] = '4096';
+
+    const config = loadLLMConfig(dir);
+
+    expect(config?.provider).toBe('anthropic');
+    expect(config?.model).toBe('claude-opus-5');
+    expect(config?.baseUrl).toBe('https://api.anthropic.com/v1/messages');
+    expect(config?.apiKey).toBe('sk-ant-from-env');
+    expect(config?.maxOutputTokens).toBe(4096);
+  });
+
+  it('모르는 공급자는 무시하고 파일 값을 지킨다', () => {
+    process.env['HELM_LLM_PROVIDER'] = 'gemini';
+
+    // 앞 테스트의 덮어쓰기가 아니라 **파일 값**으로 돌아간다 — 오타 하나로
+    // 엉뚱한 공급자를 부르는 것보다 설정 파일대로 도는 편이 안전하다.
+    expect(loadLLMConfig(dir)?.provider).toBe('openai');
+  });
+});
