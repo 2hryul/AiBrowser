@@ -14,7 +14,7 @@
     "piiInLog": 0,
     "piiInSamples": 60,
     "reviewFlagged": 5,
-    "auditFile": "D:\\SOURCE\\aiBrowser\\.m3-profile\\audit\\run-mtwlcr2q.jsonl",
+    "auditFile": "D:\\source\\AIBrowser\\.m3-profile\\audit\\run-mtxxg998.jsonl",
     "output": "scenario-d-table.json",
     "shots": [
       {
@@ -81,8 +81,8 @@
   },
   "stepLogPlayer": {
     "steps": 61,
-    "stepsWithScreenshot": 12,
-    "inspectedStep": 6,
+    "stepsWithScreenshot": 11,
+    "inspectedStep": 12,
     "openedTabUrl": "app://portal-d/",
     "openedTabOwner": "human",
     "shot": "step-log-player.png"

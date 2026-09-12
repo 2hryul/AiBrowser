@@ -242,7 +242,9 @@ test('[시나리오 A] 공지 200건을 표로 — 3회 중 2회 성공, 2회차
       uniqueIds: ids.size,
       duplicates: outcome.duplicates,
       badDates: badDates.length,
-      reason: outcome.reason
+      reason: outcome.reason,
+      // 실패했을 때 "무엇을 모았는지" 를 볼 수 있어야 한다. 숫자만으로는 못 고친다.
+      sample: rows.slice(0, 2)
     };
   }
 

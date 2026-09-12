@@ -12,6 +12,7 @@ import {
   doneToolDef,
   extractToolDef,
   firstUrlIn,
+  isPageRead,
   openingMessages,
   parseExpectedCount,
   renderToolResult,
@@ -97,6 +98,13 @@ const MAX_IDLE_STEPS = 12;
  * 예산을 넘겨 `prompt_too_large` 로 죽었다(artifacts/m4b). 20행짜리 목록은 2,500자 안팎이다.
  */
 const MAX_EXTRACT_CHARS = 6_000;
+/**
+ * 표를 루프가 뽑을 때 대화에 넣는 본문 길이.
+ *
+ * 모델에게는 "여기가 어디고 다음은 어딘가" 를 알 만큼이면 된다. 본문 전체는 추출기가
+ * 따로 읽는다.
+ */
+const BROWSE_SNIPPET_CHARS = 800;
 
 /** 설명을 요구하는 지시인가 — 이런 요청에 한 단어로 답하는 것은 답이 아니다. */
 const EXPLAIN_WORDS = /요약|정리|설명|알려|정보|무엇|뭐야|어떤|왜|어떻게|summar|explain/i;
@@ -594,7 +602,19 @@ export class Agent {
           role: 'tool',
           toolCallId: call.id,
           name: call.name,
-          content: renderToolResult(call.name, result)
+          /**
+           * 표를 루프가 뽑는 작업에서는 **본문을 대화에 길게 넣지 않는다.**
+           *
+           * 넣을 이유가 사라졌기 때문이다 — 행은 구조화 추출이 따로 읽어 간다. 모델에게
+           * 필요한 것은 "이 화면이 무엇이고 다음은 어디인가" 뿐이다. 4,000자짜리 한글 본문은
+           * 그 자체로 4,000토큰에 가까워서, 두 페이지만 쌓여도 8k 예산을 넘긴다
+           * (실측: 세 번 다 `prompt_too_large` — artifacts/m4b).
+           */
+          content: renderToolResult(
+            call.name,
+            result,
+            columns.length > 0 && isPageRead(call.name) ? BROWSE_SNIPPET_CHARS : undefined
+          )
         });
 
         // 읽기 결과의 원문을 따로 보관한다. 대화에 넣는 것은 줄여 놓기 때문에
@@ -797,11 +817,16 @@ export class Agent {
       return typeof text === 'string' && text !== '' ? text : null;
     }
 
-    // 접근성 트리·네트워크 응답도 표의 출처가 된다 — 모양 그대로 넘긴다.
-    if (toolName === 'read_page' || toolName === 'read_network_requests') {
-      return JSON.stringify(result);
-    }
+    // XHR 응답도 표의 출처다 — JSON 그대로가 오히려 정확하다.
+    if (toolName === 'read_network_requests') return JSON.stringify(result);
 
+    /**
+     * `read_page`(접근성 트리)는 **표의 출처로 쓰지 않는다.**
+     *
+     * 한 번 넣어 봤다가 추출기가 `id: "ref_7"`, `postedAt: "1970-01-01"` 같은 행을 만들어 냈다
+     * (artifacts/m4b). 트리에는 화면의 값이 아니라 **누를 것들의 이름표**가 들어 있어서,
+     * 거기서 표를 뽑으라고 하면 없는 표를 지어낸다. 트리는 누를 것을 찾는 데만 쓴다.
+     */
     return null;
   }
 

@@ -1,7 +1,7 @@
 [
   {
     "name": "helm-devtest",
-    "path": "D:\\SOURCE\\aiBrowser\\fixtures\\extensions\\helm-devtest",
+    "path": "D:\\source\\AIBrowser\\fixtures\\extensions\\helm-devtest",
     "ok": true,
     "manifestName": "Helm 확장 로드 검증",
     "version": "1.0.0",
@@ -10,7 +10,7 @@
   },
   {
     "name": "helm-unsupported",
-    "path": "D:\\SOURCE\\aiBrowser\\fixtures\\extensions\\helm-unsupported",
+    "path": "D:\\source\\AIBrowser\\fixtures\\extensions\\helm-unsupported",
     "ok": true,
     "manifestName": "Helm 미지원 API 검증",
     "version": "0.2.0",
@@ -23,7 +23,7 @@
   },
   {
     "name": "helm-missing",
-    "path": "D:\\SOURCE\\aiBrowser\\fixtures\\extensions\\없는-확장",
+    "path": "D:\\source\\AIBrowser\\fixtures\\extensions\\없는-확장",
     "ok": false,
     "manifestName": null,
     "version": null,

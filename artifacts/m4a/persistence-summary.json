@@ -32,26 +32,29 @@
     "threadId": "persistence-e2e",
     "statusAfterRestart": "paused",
     "messagesBefore": 2,
-    "messagesAfter": 3,
+    "messagesAfter": 6,
     "seqs": [
       1,
       2,
-      3
+      3,
+      4,
+      5,
+      6
     ],
     "shot": "threads-continued.png"
   },
   "resultsExport": {
     "rows": 3,
     "csv": {
-      "file": "results-persistence-e2e-2026-09-11T06-45-14-214Z.csv",
+      "file": "results-persistence-e2e-2026-09-12T05-16-10-183Z.csv",
       "bytes": 202
     },
     "md": {
-      "file": "results-persistence-e2e-2026-09-11T06-45-14-215Z.md",
+      "file": "results-persistence-e2e-2026-09-12T05-16-10-183Z.md",
       "bytes": 275
     },
     "json": {
-      "file": "results-persistence-e2e-2026-09-11T06-45-14-215Z.json",
+      "file": "results-persistence-e2e-2026-09-12T05-16-10-184Z.json",
       "bytes": 382
     },
     "columns": [

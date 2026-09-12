@@ -157,10 +157,19 @@ export async function extractTable(
   try {
     const parsed: unknown = JSON.parse(response.text);
     if (typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { rows?: unknown }).rows)) {
-      rows = ((parsed as { rows: unknown[] }).rows).filter(
-        (row): row is Record<string, unknown> =>
-          typeof row === 'object' && row !== null && !Array.isArray(row)
-      );
+      rows = ((parsed as { rows: unknown[] }).rows)
+        .filter(
+          (row): row is Record<string, unknown> =>
+            typeof row === 'object' && row !== null && !Array.isArray(row)
+        )
+        /**
+         * 값이 전부 빈 행은 버린다.
+         *
+         * 스키마가 모든 열을 `required` 로 잡고 있어서, 뽑을 것이 없을 때 모델은 규칙을
+         * 지키려고 **빈 칸으로 채운 행**을 만든다. 그건 데이터가 아니라 스키마를 만족시킨
+         * 흔적이고, 그대로 세면 "몇 건인가" 가 바로 틀어진다.
+         */
+        .filter((row) => Object.values(row).some((value) => String(value ?? '').trim() !== ''));
     }
   } catch (error) {
     // 구조화 출력이 깨진 것은 조용히 빈 결과로 넘길 일이 아니다 — 0건과 실패는 다르다.

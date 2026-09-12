@@ -333,7 +333,17 @@ test('[스레드] 앱을 껐다 켠 뒤 같은 스레드에 이어 말한다', a
         ),
       { message: '이어 말하기 반영 대기', timeout: 15_000 }
     )
-    .toBe(3);
+    .toBeGreaterThanOrEqual(3);
+
+  /**
+   * M4b 부터 이 버튼은 **에이전트를 깨운다**(Composer). 그래서 사람의 한 마디 뒤로
+   * 에이전트의 기록이 더 붙는다 — 개수를 3 으로 못 박으면 그 뒤에 무엇이 붙든 깨진다.
+   *
+   * M4a 가 약속한 것은 개수가 아니라 **이력의 연속성**이다: 앞의 대화가 그대로 있고,
+   * 사람의 새 말이 그 뒤에 이어지고, 번호가 끊기지 않는다. 아래에서 그것을 본다.
+   * 에이전트는 여기서 할 일이 없으므로 바로 멈춰 둔다.
+   */
+  await app.evaluate((_electronApi, threadId) => globalThis.__helm?.stopAgent(threadId), THREAD);
 
   const final = await app.evaluate(
     (_electronApi, threadId) =>
@@ -345,11 +355,17 @@ test('[스레드] 앱을 껐다 켠 뒤 같은 스레드에 이어 말한다', a
     THREAD
   );
 
-  // 히스토리 연속: 번호가 1..3 으로 이어지고 앞의 대화가 그대로 남아 있다.
-  expect(final.map((message) => message.seq)).toEqual([1, 2, 3]);
+  // 히스토리 연속: 번호가 1부터 끊김 없이 이어지고 앞의 대화가 그대로 남아 있다.
+  expect(final.map((message) => message.seq)).toEqual(
+    final.map((_message, index) => index + 1)
+  );
   expect(final[0]?.text).toBe('지난주 공지 요약해줘');
-  expect(final[2]?.text).toBe('재시작 후에도 이어집니까?');
-  expect(final[2]?.role).toBe('human');
+  expect(final[1]?.text).toBe('공지 12건을 찾았습니다');
+
+  const said = final.find((message) => message.text === '재시작 후에도 이어집니까?');
+  expect(said, '재시작 후 보낸 말이 스레드에 없습니다').toBeDefined();
+  expect(said?.role).toBe('human');
+  expect(said?.seq, '새 말이 기존 대화 뒤에 붙지 않았습니다').toBeGreaterThan(2);
 
   await app.evaluate(() => globalThis.__helm?.setPanel('none'));
 
