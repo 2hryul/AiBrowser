@@ -1,74 +1,95 @@
-# GOAL.md — Helm(가칭) M0 첫 산출물
+# GOAL.md — Helm(가칭) M4 지속성 + 내장 에이전트(로컬 LLM)
 
-이 파일은 Claude Code가 이번 세션의 **목표**로 읽는 단일 명세다. `CLAUDE.md`(규칙)와 함께 읽고, 이 목표 하나만 개입 없이 끝까지 달성한다. 목표 밖은 하지 않는다.
+이 파일은 Claude Code가 이번 세션의 **목표**로 읽는 단일 명세다. `CLAUDE.md`, 시나리오 문서(A·B·E·G)와 함께 읽는다. 범위가 크므로 **두 세션(M4a 지속성, M4b 에이전트)** 으로 나누어 실행해도 된다 — 각 세션은 아래 해당 절만 목표로 삼는다.
 
 ---
 
-## OBJECTIVE (목표)
+## PRECONDITIONS
 
-사람은 기존 크롬처럼 쓰고 AI는 사람처럼 다루는 사내 브라우저 "Helm"의 **가장 작은 실행 골격(M0)** 을 신규 스캐폴딩으로 만든다. Electron(Chromium 내장) 위에서 탭·주소창·네비게이션이 동작하고 세션이 재시작 후에도 유지되는, "뜨는 빈 브라우저"가 결과물이다.
+- `artifacts/m3/REPORT.md` 전부 PASS
+- **M4b 전용**: 개발 PC에 Ollama가 설치되어 `http://localhost:11434/v1/chat/completions`이 응답하고 `qwen2.5:7b-instruct`(FIXED DECISIONS 의 2026-09-12 대체 결정)가 pull 되어 있음. 없으면 M4b는 STOP. 개발 초기 검증용으로 `ANTHROPIC_API_KEY`가 있으면 Anthropic 어댑터 경로도 함께 검증(선택)
+- 모의 포털에 E(위키형: 지연 로딩 트리 400페이지, 깨진 링크 30개, 구 도메인 링크 20개)와 G(메신저형: 가상 스크롤 메시지, 스레드 접힘, `/messages` JSON)를 추가한다
 
-이번 세션의 목표는 이것 **하나**다.
+## OBJECTIVE
 
-## IN SCOPE (이번에 만드는 것)
+**M4a**: 중단이 정상인 장시간 작업을 위해 스레드·이름 붙인 세션·체크포인트·받은편지함·메모·에이전트 북마크·페이지 변경 이력을 구현하고, 앱을 종료해도 이어 말할 수 있게 한다.
+**M4b**: 사내 로컬 LLM으로 도는 내장 에이전트가 ToolSurface만 써서 사이드바 지시를 수행하고, MacroCache로 반복 작업의 LLM 호출을 줄인다.
 
-- electron-vite 기반 Electron + React + TypeScript(strict) 신규 프로젝트
-- 메인: `BaseWindow` + `WebContentsView` 기반 탭 관리(TabManager), 영구 세션 partition `persist:helm`
-- 커스텀 프로토콜 `app://` 로 번들 홈페이지(`app://home`) 제공 (외부 네트워크 불필요)
-- 렌더러: 세로 탭바 + 주소창 + 뒤로/앞으로/새로고침. 최소하지만 깔끔한 UI
-- 자동 스모크 테스트(`scripts/smoke.ts`, `@playwright/test`의 Electron 런처)
-- `package.json` 스크립트: `dev`, `build`, `typecheck`, `lint`, `smoke`
+## IN SCOPE — M4a 지속성
 
-## OUT OF SCOPE (이번에 하지 않는 것)
+- `SessionStore`: Named Sessions `persist:helm:<name>`, safeStorage 메타(로그인 경로·시각), 탭에 SessionBadge, `session_list/session_use`
+- `ThreadStore`(SQLite better-sqlite3): 메시지·도구 호출·상태(`running|paused|waiting_approval|waiting_login|done|failed`), 재시작 시 `running→paused`
+- `CheckpointStore`: 자동(10단계·페이지 전환·ask_user 직전)+수동, 내용=AI 탭(URL·세션·스크롤)·ResultsTable·스레드 index·메모 버전, `checkpoint_save/list/restore`
+- `Inbox`: `{kind: result|approval|login_required|done|failed, threadId, title, summary, evidencePath}`, 미읽음 배지, M3의 승인 임시 목록을 여기로 통합, `inbox_post`
+- `NoteStore`: `thread:<id>` / `site:<host>`, 자격증명·PII 패턴 저장 거부, `note_read/note_append`
+- `BookmarkMeta`: `{intent, expectedContent, keyFields[], agentHints}` 편집 UI + `bookmark_list/bookmark_get`
+- `ChangeTracker`: 북마크 URL 방문 시 Reader 본문 스냅샷(200KB 상한), `page_history/page_diff`(단어 diff), 이력 뷰
+- UndoManager를 runId → threadId 스택으로 승격
+- 장시간 모드: 스텝 상한 2,000 + 체크포인트 필수, 재개 로직
+- 사이드바: ThreadList/ThreadView/InboxView/NotesPanel, ResultsTable(출처 URL·단계 번호, CSV/MD/JSON 내보내기)
 
-AI 비서, ToolSurface, MCP 서버, 로컬 LLM, 에이전트, 사내 포털, 인증정보 임포트, 로그인 획득 경로, 검증(워크플로우) 계층, 승인·되돌리기 UI, 확장 프로그램. 이들은 M1 이후 별도 세션의 목표다. 이 항목이 필요해지면 스코프 오류이므로 만들지 말고 `REPORT.md`에 기록한다.
+## IN SCOPE — M4b 내장 에이전트
 
-## FIXED DECISIONS (되묻지 말 것 — 이미 결정됨)
+- `LLMClient`: OpenAI 호환 `/v1/chat/completions` + tools + `response_format: json_schema`, 설정 `{provider, baseUrl, apiKey, model}`, Anthropic 어댑터, 8k 토큰 상한, 모든 호출 AuditLog
+- `Agent`: ToolSurface만 사용(CDP 직접 호출 lint 금지). 시작 시 `session_use → bookmark_list → note_read(site)`. 읽기 우선순위 프롬프트 고정(read_network_requests → get_page_text → read_page → screenshot). `<page_content>` 격리. 루프 상한 60(장시간 2,000). 동일 도구+인자 3회 → ask_user. 완료 시 `inbox_post(done)` + site 메모 제안(사람 확인 후 저장)
+- `find` 2차(LLM 선택) 추가
+- `MacroCache`: 같은 사이트·같은 단계 2회 성공 시 캐시, 실패 시 무효화·LLM 복구
+- `Extract`: 표/스키마 추출 → ResultsTable
+- Composer(사이드바 입력칸): 가벼운 요청(현재 페이지 질문·요약)과 작업 지시 동일 입력
 
-- 신규(greenfield) 스캐폴딩으로 만든다. Vessel 포크는 M0 산출물을 본 뒤 별도 검토(도중에 판단하지 않음).
-- 스택은 위 IN SCOPE 그대로. 대체 프레임워크를 고르지 않는다.
-- 테스트는 외부 접속 없이 번들 로컬 페이지(`app://home`)로만 한다.
-- 모르는 Electron API는 추측하지 말고 설치된 타입 정의와 공식 문서 패턴을 확인한다.
+## OUT OF SCOPE
 
-## CONSTRAINTS (제약 — CLAUDE.md 보안 기본값과 동일)
+LoginBroker·임포트 마법사(M5로 이동 — 아래 참고), 검증 계층(워크플로우·오라클), 서명·배포, 실제 포털.
+(참고: 로드맵상 LoginBroker·임포트는 M0에 있었으나 자율 실행 순서에서는 사람 협의(정보보호)가 필요해 M5 앞의 별도 세션 **GOAL-M4c**로 분리한다.)
 
-- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`
-- 웹 콘텐츠 `WebContentsView`에는 preload를 붙이지 않는다
-- IPC는 화이트리스트 채널만 노출한다
-- 외부 네트워크 호출 코드를 넣지 않는다(자동 업데이트·텔레메트리·크래시 리포트 금지). `npm install`만 예외
-- 의존성 라이선스는 MIT/Apache-2.0/BSD/ISC/0BSD/MPL-2.0만
+## FIXED DECISIONS
 
-## SUCCESS CRITERIA (성공 조건 — 전부 통과해야 완료)
+- 저장은 SQLite(better-sqlite3) 단일 파일 + 대용량(본문·스크린샷)은 파일. 스키마 마이그레이션은 `migrations/` 번호 파일
+- 로컬 모델 기본 `qwen2.5:7b-instruct`. 툴 호출 미지원 모델은 기동 시 경고
+  - **2026-09-12 사람 결정 — 모델 대체**: 원래 지정은 `qwen3.6:27b`(폴백 `qwen3-coder:30b`)였으나
+    개발 PC(RAM 31GB · RTX 5060 Laptop)에서 27B Q4 는 VRAM 을 넘겨 CPU 오프로드가 되고,
+    두 모델 모두 확보되지 않았다. `qwen2.5:7b-instruct` 로 대체한다 — 능력 4종(도구 호출 ·
+    다단계 · 구조화 출력 · 주입 저항)이 `npm run probe:llm` 에서 PASS 했다(`docs/eval.md`).
+    성공 판정 기준(3회 중 2회)은 낮추지 않는다. 7B 로 기준에 못 미치면 STOP CONDITIONS 대로
+    멈추고 `eval.md` 에 실패 패턴을 적는다
+- M4b 성공 판정은 **3회 실행 중 2회 성공**(LLM 비결정성 감안). 5회 중 3회 미만이면 프롬프트·MacroCache를 개선하되, 도구 표면을 우회하는 방식으로 성공률을 올리지 않는다
+- 메모·북마크 메타 저장 전 PII·자격증명 패턴 검사(M3 규칙 재사용)
 
-기계로 판정 가능한 조건이다. "됐다"를 말로 판단하지 않고 실제로 실행해 확인한다.
+## CONSTRAINTS
 
-1. `npm run typecheck` 통과
-2. `npm run lint` 통과
-3. `npm run build` 성공
-4. `npm run smoke` 통과 — 스모크 테스트가 다음을 검증:
-   - 앱이 실행되고 메인 윈도우가 뜬다
-   - 새 탭 2개 생성 → 하나를 `app://home` 으로 이동 → 문서 `title`이 기대값과 일치
-   - 탭 전환·닫기 동작
-   - 앱 종료 후 재실행 시 `persist:helm` 파티션이 유지됨(쿠키 1개 저장 → 재시작 → 동일 쿠키 재확인)
-   - `webContents.capturePage()` 스크린샷을 `artifacts/m0/`에 저장
-5. `artifacts/m0/REPORT.md` 에 위 4개 결과(PASS/FAIL), 스크린샷 경로, 실행 방법(`npm run dev`)을 기록
+CLAUDE.md 보안 기본값. LLM 엔드포인트는 설정된 하나만. 자격증명·쿠키·토큰을 스레드·체크포인트·메모·북마크에 쓰지 않는다. `LLMClient` import는 `Extractor`·`ops/classify|normalize`·`recorder/Compiler`·`Agent`·`find` 2차 외에는 lint 에러.
 
-## AUTONOMY LOOP (개입 없이 도는 방식)
+## SUCCESS CRITERIA — M4a (전부 통과)
 
-1. 스캐폴딩 → 구현 → `typecheck → lint → build → smoke` 순으로 실제 실행
-2. 실패하면 로그를 읽고 원인을 고쳐 재시도. 통과할 때까지 반복
-3. UI 렌더링 여부는 스크린샷 파일(크기·해상도)로 확인, 말로 단정하지 않음
-4. 의미 단위로 커밋(한국어, 제목 50자 이내, 본문에 `[M0]`)
-5. 5개 성공 조건이 모두 통과하면 `REPORT.md`를 쓰고 종료
+1. 회귀: `typecheck && lint && build && smoke && test:tools && test:mcp && test:policy`
+2. `npm run test:persistence` — 각 스토어 CRUD, 마이그레이션, 재시작 시 `running→paused`, 체크포인트 저장/복원 라운드트립, Inbox 미읽음 카운트, NoteStore PII 거부, ChangeTracker diff 골든 3건
+3. **시나리오 E**(MCP 스크립트, LLM 없음): 400페이지 순회 중 200페이지 지점에서 **앱 강제 종료** → 재실행 → 스레드 `paused` → "이어서" → 마지막 체크포인트에서 재개 → 완주. 결함 목록 50건(30+20) 정확, 방문 페이지 수 = 400, 중복 방문 0, 탭 누수 0(종료 시 AI 탭 수 ≤ 3)
+4. Named Session: 두 세션(`itsm`, `gw`)에 각기 다른 쿠키 → 재시작 → 각 파티션 쿠키 유지·교차 없음. 탭 배지 표시(스크린샷)
+5. 스레드 이어 말하기: 스레드 생성 → 앱 종료 → 재실행 → 같은 스레드에 메시지 추가 → 히스토리 연속
+6. ResultsTable CSV/MD/JSON 내보내기 파일 내용 검증
+7. `artifacts/m4a/REPORT.md`
 
-## STOP CONDITIONS (여기서만 멈추고 사람을 부른다)
+## SUCCESS CRITERIA — M4b (전부 통과)
 
-다음이면 억지로 진행하지 말고 `artifacts/m0/REPORT.md`에 상황·재현법·막힌 지점을 적고 종료:
+1. M4a 회귀 + `test:agent`(프롬프트 격리 테스트: `<page_content>` 안의 지시문이 도구 호출로 이어지지 않음 — 인젝션 fixture 10건 전부 무시)
+2. **시나리오 A를 Ollama로**: "공지 200건 표로 뽑아 CSV로" → 3회 중 2회 성공(행 수 200, 중복 0, 날짜 형식). 2회차 실행의 LLM 호출 수가 1회차 대비 **50% 이상 감소**(MacroCache)
+3. **시나리오 B를 Ollama로**: 3회 중 2회 성공, read_network_requests 경로로 완료(DOM 파싱 스텝 0)
+4. **시나리오 G**: 별도 탭 협상(ask_user) → 스크롤 누적 → 결정사항 추출 → 주간보고 초안(근거 링크 100% 유효). 진행 중 smoke가 키 입력 주입 → paused → 이어서 → 중복 수집 0
+5. 사이드패널 가벼운 요청: `app://fixtures/article.html`에서 "요약해줘" → 응답에 기대 키워드 3개 포함
+6. 완료 시 Inbox `done` 항목 + site 메모 제안 다이얼로그 표시(자동 저장 아님)
+7. `docs/eval.md`에 모델·시나리오별 성공률·평균 스텝·LLM 호출 수 표 기록
+8. `artifacts/m4b/REPORT.md`
 
-- `npm install`이 레지스트리 접근 불가로 실패(환경 문제 — 코드로 해결 불가)
-- 같은 근본 원인으로 5회 이상 build/smoke 실패
-- OUT OF SCOPE 결정이 필요해짐(스코프 오류 — 발생 자체를 기록)
+## AUTONOMY LOOP
 
-## DONE (완료의 정의)
+M4a: 스토어 → 사이드바 → 시나리오 E → 세션/스레드 재시작 테스트. M4b: LLMClient → Agent → MacroCache → 시나리오 A·B → G → eval.md. 각 단계 테스트 통과 후 다음. `[M4a]`/`[M4b]` 커밋.
 
-`artifacts/m0/REPORT.md`가 존재하고 5개 성공 조건이 모두 PASS이며, `npm run dev`로 사람이 직접 띄웠을 때 탭·주소창·네비게이션이 동작하고 재시작 후 세션이 유지된다.
+## STOP CONDITIONS
+
+- PRECONDITIONS 미충족(특히 M4b의 Ollama 미기동) / 같은 근본 원인 5회 실패 / OUT OF SCOPE 결정 필요
+- M4b에서 5회 중 3회 미만 성공이 프롬프트·캐시 개선 3라운드 후에도 지속 → STOP, `eval.md`에 실패 패턴 기록(모델 교체는 사람 결정)
+
+## DONE
+
+M4a: 앱을 죽여도 스레드·체크포인트에서 이어가고, 받은편지함에 결과가 모이고, 세션이 이름별로 유지된다.
+M4b: 사내 GPU 없이 개발 PC의 Ollama만으로 모의 포털 A·B 수집이 3회 중 2회 성공하고, 2회차부터 LLM 호출이 절반으로 준다.

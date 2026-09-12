@@ -7,7 +7,7 @@
 ## PRECONDITIONS
 
 - `artifacts/m3/REPORT.md` 전부 PASS
-- **M4b 전용**: 개발 PC에 Ollama가 설치되어 `http://localhost:11434/v1/chat/completions`이 응답하고 `qwen3.6:27b`(또는 `qwen3-coder:30b`)가 pull 되어 있음. 없으면 M4b는 STOP. 개발 초기 검증용으로 `ANTHROPIC_API_KEY`가 있으면 Anthropic 어댑터 경로도 함께 검증(선택)
+- **M4b 전용**: 개발 PC에 Ollama가 설치되어 `http://localhost:11434/v1/chat/completions`이 응답하고 `qwen2.5:7b-instruct`(FIXED DECISIONS 의 2026-09-12 대체 결정)가 pull 되어 있음. 없으면 M4b는 STOP. 개발 초기 검증용으로 `ANTHROPIC_API_KEY`가 있으면 Anthropic 어댑터 경로도 함께 검증(선택)
 - 모의 포털에 E(위키형: 지연 로딩 트리 400페이지, 깨진 링크 30개, 구 도메인 링크 20개)와 G(메신저형: 가상 스크롤 메시지, 스레드 접힘, `/messages` JSON)를 추가한다
 
 ## OBJECTIVE
@@ -45,7 +45,13 @@ LoginBroker·임포트 마법사(M5로 이동 — 아래 참고), 검증 계층(
 ## FIXED DECISIONS
 
 - 저장은 SQLite(better-sqlite3) 단일 파일 + 대용량(본문·스크린샷)은 파일. 스키마 마이그레이션은 `migrations/` 번호 파일
-- 로컬 모델 기본 `qwen3.6:27b`, 폴백 `qwen3-coder:30b`. 툴 호출 미지원 모델은 기동 시 경고
+- 로컬 모델 기본 `qwen2.5:7b-instruct`. 툴 호출 미지원 모델은 기동 시 경고
+  - **2026-09-12 사람 결정 — 모델 대체**: 원래 지정은 `qwen3.6:27b`(폴백 `qwen3-coder:30b`)였으나
+    개발 PC(RAM 31GB · RTX 5060 Laptop)에서 27B Q4 는 VRAM 을 넘겨 CPU 오프로드가 되고,
+    두 모델 모두 확보되지 않았다. `qwen2.5:7b-instruct` 로 대체한다 — 능력 4종(도구 호출 ·
+    다단계 · 구조화 출력 · 주입 저항)이 `npm run probe:llm` 에서 PASS 했다(`docs/eval.md`).
+    성공 판정 기준(3회 중 2회)은 낮추지 않는다. 7B 로 기준에 못 미치면 STOP CONDITIONS 대로
+    멈추고 `eval.md` 에 실패 패턴을 적는다
 - M4b 성공 판정은 **3회 실행 중 2회 성공**(LLM 비결정성 감안). 5회 중 3회 미만이면 프롬프트·MacroCache를 개선하되, 도구 표면을 우회하는 방식으로 성공률을 올리지 않는다
 - 메모·북마크 메타 저장 전 PII·자격증명 패턴 검사(M3 규칙 재사용)
 
