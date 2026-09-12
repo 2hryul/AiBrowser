@@ -201,9 +201,50 @@ export async function callTool(
   const validate = validators.get(name);
 
   if (validate && !validate(args)) {
+    /**
+     * 어긋난 자리를 **이름으로** 말해 준다.
+     *
+     * ajv 의 기본 문구는 "must NOT have additional properties" 라서 무엇이 문제인지 알 수 없다.
+     * 사람도 모델도 그 말로는 고칠 수 없어서 같은 실수를 반복한다 — 실제로 내장 에이전트가
+     * 같은 도구를 같은 방식으로 일곱 번 거절당했다(artifacts/m4b).
+     */
     const detail = (validate.errors ?? [])
-      .map((error) => `${error.instancePath || '/'} ${error.message ?? ''}`.trim())
+      .map((error) => {
+        const where = error.instancePath || '/';
+        const extra = (error.params as { additionalProperty?: string }).additionalProperty;
+        const allowed = (error.params as { allowedValues?: unknown[] }).allowedValues;
+
+        if (extra) return `${where} 모르는 인자 "${extra}"`;
+        if (allowed) return `${where} ${error.message ?? ''} (${allowed.join(' | ')})`;
+        return `${where} ${error.message ?? ''}`.trim();
+      })
       .join('; ');
+
+    /**
+     * 거절된 호출도 로그에 남긴다.
+     *
+     * 처음에는 그냥 던지기만 했는데, 그러면 **감사 로그에 아무 흔적이 남지 않는다.**
+     * 내장 에이전트를 붙이고 나서 실제로 겪었다 — 모델이 잘못된 인자로 같은 도구를 열 번 넘게
+     * 부르는 동안 로그는 조용했고, 밖에서는 "아무것도 안 하고 멈춘 것" 처럼 보였다.
+     * "AI 가 무엇을 했는가" 에는 **하려다 거절당한 것**도 들어가야 한다.
+     */
+    ctx.audit.append({
+      ts: Date.now(),
+      source: ctx.source,
+      runId: ctx.runId,
+      tabId: null,
+      url: null,
+      tool: name,
+      args: maskDeep(args),
+      targetText: null,
+      result: null,
+      durationMs: 0,
+      screenshotPath: null,
+      policyDecision: 'allow',
+      grantScope: null,
+      error: `invalid_args: ${detail}`
+    });
+
     throw new ToolError('invalid_args', `[${name}] 인자 검증 실패: ${detail}`);
   }
 

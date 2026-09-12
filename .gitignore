@@ -47,3 +47,7 @@ test-results/
 # 대표 3일치는 artifacts/m5/evidence-sample/ 에 손으로 골라 둔 것이 있다.
 artifacts/m5/evidence/
 artifacts/m5/e2e/
+
+# M4b 에이전트 시나리오
+.agent-profile/
+.agent-downloads/

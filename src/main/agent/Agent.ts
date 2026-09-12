@@ -4,13 +4,14 @@ import type { Inbox } from '../persistence/Inbox';
 import type { NoteStore } from '../persistence/NoteStore';
 import type { ThreadStore } from '../persistence/ThreadStore';
 import { isBlocked, isPaused, type Tool } from '../tools/index';
-import { ResultsCollector } from './Extract';
+import { extractTable, planColumns, ResultsCollector, type ColumnSpec } from './Extract';
 import { MacroCache, routeOf, taskKey, type MacroState } from './MacroCache';
 import {
   AGENT_DONE,
   AGENT_EXTRACT,
   doneToolDef,
   extractToolDef,
+  firstUrlIn,
   openingMessages,
   parseExpectedCount,
   renderToolResult,
@@ -51,16 +52,51 @@ export const AGENT_TOOL_NAMES = [
   'note_read'
 ] as const;
 
+/**
+ * `tabId` 를 받는 도구들. 모델이 비워 두면 **에이전트 자기 탭**을 채워 넣는다.
+ *
+ * 비워 두면 활성 탭이 되는데, 활성 탭은 보통 사람이 보고 있는 탭이다(불변 조건 3).
+ * 모델이 매번 tabId 를 잊지 않기를 바라는 대신 루프가 채운다.
+ */
+const TAB_SCOPED_TOOLS = new Set([
+  'navigate',
+  'navigate_history',
+  'get_page_text',
+  'read_page',
+  'read_network_requests',
+  'read_console_messages',
+  'find',
+  'computer',
+  'form_input',
+  'download'
+]);
+
 /** 같은 도구+인자를 이만큼 반복하면 사람에게 묻는다(CLAUDE.md 내장 에이전트). */
 const REPEAT_LIMIT = 3;
 /** `done` 을 몇 번까지 되돌려 보낼 것인가. 계속 미루면 멈추는 편이 낫다. */
 const MAX_DONE_REJECTIONS = 5;
 /** 자동 체크포인트 주기(M4a). */
 const CHECKPOINT_EVERY = 10;
-/** 캐시만으로 연속해서 돌 수 있는 단계 수. 넘으면 한 번 모델에게 물어 방향을 확인한다. */
-const MAX_MACRO_STREAK = 30;
+/**
+ * 캐시만으로 연속해서 돌 수 있는 단계 수.
+ *
+ * 30 으로 두었다가 실측에서 한 실행이 **캐시로만 180단계를 돌며 0행을 모았다**
+ * (artifacts/m4b 3회차). 매크로는 "다음엔 이걸 했었다" 만 알지 그게 쓸모 있는지는 모른다.
+ * 그래서 두 가지를 건다 — 연속 상한을 줄이고, 그 사이에 **수집이 늘지 않으면 그 자리를 버린다.**
+ */
+const MAX_MACRO_STREAK = 10;
 /** 답의 형태가 요청과 어긋날 때 다시 묻는 횟수. */
 const MAX_ANSWER_REJECTIONS = 2;
+/** 진전 없이 흘려보낼 수 있는 단계 수. 넘으면 멈춘다 — 2,000스텝을 헛돌게 두지 않는다. */
+const MAX_IDLE_STEPS = 12;
+/**
+ * 구조화 추출에 넘기는 본문 상한.
+ *
+ * 대화에 넣는 4,000자보다는 넉넉해야 뒷행이 살아남고, **프롬프트 예산(8k 토큰)보다는 작아야
+ * 한다.** 처음에 16,000자로 잡았다가 한글 본문이 거의 글자당 1토큰이라 그 한 메시지가 혼자
+ * 예산을 넘겨 `prompt_too_large` 로 죽었다(artifacts/m4b). 20행짜리 목록은 2,500자 안팎이다.
+ */
+const MAX_EXTRACT_CHARS = 6_000;
 
 /** 설명을 요구하는 지시인가 — 이런 요청에 한 단어로 답하는 것은 답이 아니다. */
 const EXPLAIN_WORDS = /요약|정리|설명|알려|정보|무엇|뭐야|어떤|왜|어떻게|summar|explain/i;
@@ -157,7 +193,21 @@ export class Agent {
     this.deps.threads.append(threadId, { role: 'human', text: instruction });
 
     const hints = await this.gatherHints(threadId, instruction, thread.sessionName);
+    const startUrl = firstUrlIn(instruction);
+    const workTabId = await this.openWorkTab(startUrl);
     const messages = openingMessages({ instruction, hints: hints.hints, siteNotes: hints.notes });
+
+    if (workTabId !== null) {
+      messages.push({
+        role: 'system',
+        content:
+          `이번 작업은 tabId=${workTabId} 탭에서 한다. 다른 탭은 사람이 보고 있으니 건드리지 않는다.
+` +
+          (startUrl === null
+            ? '이 탭은 비어 있다 — 먼저 navigate 로 목표 페이지를 열어라.'
+            : `이 탭에는 ${startUrl} 을(를) 이미 열어 두었다. 바로 읽기부터 시작하면 된다.`)
+      });
+    }
 
     const tools = this.buildToolDefs();
     const recent: StepRecord[] = [];
@@ -167,11 +217,43 @@ export class Agent {
     let llmCalls = 0;
     let macroHits = 0;
     let macroStreak = 0;
+    /** 캐시 연속 구간이 시작될 때의 수집 행 수 — 캐시가 일을 하고 있는지 재는 기준. */
+    let rowsAtStreakStart = 0;
     let doneRejections = 0;
     let answerRejections = 0;
     let lastTool = 'start';
     let lastUrl = '';
+    /** 마지막으로 읽은 페이지의 원문 — 구조화 추출이 여기서 표를 뽑는다. */
+    let lastPageText = '';
+    let lastPageSource = '';
+    /** 이미 표를 뽑은 본문. 같은 화면을 두 번 뽑으면 호출만 늘고 결과는 전부 중복이다. */
+    let extractedFrom = '';
     let summary = '';
+
+    /**
+     * 진전 없이 흘러간 단계 수.
+     *
+     * "같은 도구+인자 3연속" 만으로는 모자란다 — 실측에서 모델이
+     * `read_page` → `agent_extract_rows` → `read_page` → … 로 **번갈아** 돌며 16단계 동안
+     * 한 행도 늘리지 못했다(artifacts/m4b). 번갈아 도는 반복은 연속 검사를 그냥 빠져나간다.
+     * 그래서 도구 이름이 아니라 **결과**로 본다: 새 행도 없고 주소도 안 바뀌면 진전이 없다.
+     */
+    let idleSteps = 0;
+
+    /**
+     * 수집 작업이면 열을 미리 정해 둔다.
+     *
+     * 이 한 줄이 M4b 에서 가장 비싸게 배운 것이다. 모델은 **10페이지를 도는 것은 하지만
+     * 20행을 도구 인자에 적는 것은 못 한다** — 프로브에서 루프 3/3 을 통과했던 것은 그때
+     * 도구가 행이 아니라 건수만 받았기 때문이었다. 실제로 행을 요구하자 세 번 다 한 행만
+     * 보냈다(artifacts/m4b).
+     *
+     * 그래서 역할을 나눈다. **탐색은 모델이, 표 뽑기는 구조화 출력이 한다.**
+     * 모델이 `agent_extract_rows` 를 부르지 않아도 페이지를 읽으면 루프가 뽑는다.
+     */
+    const columns: ColumnSpec[] = expected === null ? [] : await planColumns(this.deps.llm, instruction);
+    if (columns.length > 0) llmCalls += 1;
+
 
     for (;;) {
       if (options.signal?.aborted) {
@@ -192,6 +274,8 @@ export class Agent {
       }
 
       steps += 1;
+      const rowsBefore = collector.size;
+      const urlBefore = lastUrl;
 
       const state: MacroState = { task, ...routeOf(lastUrl), lastTool, currentUrl: lastUrl };
       let calls: LLMToolCall[];
@@ -207,6 +291,12 @@ export class Agent {
        * 막는 브레이크다. 한 번 모델에게 물어 방향을 확인하고 다시 캐시로 돌아간다.
        */
       const goalMet = expected !== null && collector.size >= expected;
+
+      // 캐시가 연속으로 돌았는데 모은 것이 늘지 않았다면 그 매크로는 더 이상 맞지 않는다.
+      if (macroStreak >= MAX_MACRO_STREAK && collector.size === rowsAtStreakStart) {
+        this.deps.macros.invalidate(state);
+      }
+
       const suggestion =
         goalMet || macroStreak >= MAX_MACRO_STREAK ? null : this.deps.macros.suggest(state);
 
@@ -214,6 +304,7 @@ export class Agent {
         // 모델을 부르지 않는다 — 여기가 MacroCache 가 돈을 버는 자리다.
         calls = [{ id: `macro_${steps}`, name: suggestion.tool, args: suggestion.args }];
         macroHits += 1;
+        if (macroStreak === 0) rowsAtStreakStart = collector.size;
         macroStreak += 1;
         fromMacro = true;
 
@@ -257,10 +348,17 @@ export class Agent {
         if (calls.length === 0) {
           // 도구를 안 불렀다 = 할 말만 했다. 목표가 남았으면 되돌려 보낸다.
           const shortfall = this.shortfall(expected, collector);
-          if (shortfall && doneRejections < MAX_DONE_REJECTIONS) {
-            doneRejections += 1;
-            messages.push({ role: 'user', content: `${shortfall} 도구를 불러 계속하라.` });
-            continue;
+          if (shortfall) {
+            if (doneRejections < MAX_DONE_REJECTIONS) {
+              doneRejections += 1;
+              messages.push({ role: 'user', content: `${shortfall} 도구를 불러 계속하라.` });
+              continue;
+            }
+
+            // 되물어도 계속 말만 하면 실패다. `agent_done` 경로와 판정이 같아야 한다 —
+            // 한쪽만 성공으로 빠지면 "모델이 도구를 그만 부르면 통과" 라는 구멍이 생긴다.
+            this.deps.threads.setStatus(threadId, 'failed', 'incomplete');
+            return this.failure(steps, llmCalls, macroHits, collector, shortfall, 'incomplete');
           }
 
           /**
@@ -304,6 +402,11 @@ export class Agent {
       }
 
       for (const call of calls) {
+        // 탭을 비워 두면 사람이 보는 탭으로 간다 — 루프가 자기 탭으로 채운다.
+        if (workTabId !== null && TAB_SCOPED_TOOLS.has(call.name) && call.args['tabId'] === undefined) {
+          call.args['tabId'] = workTabId;
+        }
+
         // ── 반복 감지 ──
         const argsKey = JSON.stringify(call.args);
         recent.push({ tool: call.name, argsKey });
@@ -369,13 +472,47 @@ export class Agent {
 
         if (call.name === AGENT_EXTRACT) {
           const rows = this.rowsOf(call.args['rows']);
-          const added = collector.add(rows);
+
+          /**
+           * 모델이 넘긴 행은 **신호로 받고, 표는 구조화 출력으로 다시 뽑는다.**
+           *
+           * 이유가 실측에 있다 — 20행짜리 목록을 주고 "그 페이지의 20행을 기록하라" 고 해도
+           * 7B 모델은 도구 인자에 **한 행만** 담아 보냈다(세 번 다, artifacts/m4b).
+           * 긴 구조화 인자를 자유 형식으로 쓰는 것은 작은 모델이 특히 약한 자리다.
+           * 같은 모델도 `response_format: json_schema` 를 주면 표를 제대로 뽑는다
+           * (probe P3 PASS). 그래서 열 이름은 모델의 호출에서 가져오고,
+           * 값은 페이지 본문에서 스키마를 걸어 받아 낸다.
+           *
+           * 모델이 보낸 행도 함께 넣는다 — 중복은 ResultsCollector 가 버린다.
+           */
+          let harvested = rows;
+
+          if (lastPageText !== '' && rows.length > 0) {
+            const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))].map((name) => ({
+              name
+            }));
+
+            try {
+              const extracted = await extractTable(this.deps.llm, {
+                source: lastPageSource,
+                pageText: lastPageText,
+                columns
+              });
+              llmCalls += 1;
+              if (extracted.rows.length > rows.length) harvested = [...rows, ...extracted.rows];
+            } catch (error) {
+              // 구조화 추출이 실패해도 모델이 준 행은 살린다. 0건과 실패는 다르다.
+              console.warn('[Agent] 구조화 추출 실패 — 모델이 준 행만 쓴다', error);
+            }
+          }
+
+          const added = collector.add(harvested);
           this.deps.setResults(threadId, collector.all());
 
           this.deps.threads.append(threadId, {
             role: 'tool',
             tool: AGENT_EXTRACT,
-            args: { rows: rows.length },
+            args: { rows: rows.length, harvested: harvested.length },
             result: { added, total: collector.size }
           });
 
@@ -402,6 +539,16 @@ export class Agent {
         } catch (error) {
           // 도구가 던진 것은 모델에게 그대로 알려 준다 — 다음 수를 스스로 고치게.
           this.deps.macros.invalidate(state);
+
+          // 실패한 호출도 스레드에 남긴다. 사람이 사이드바에서 "왜 안 됐나" 를 볼 수 있어야
+          // 하고, 성공한 것만 남기면 헛도는 구간이 기록에서 통째로 사라진다.
+          this.deps.threads.append(threadId, {
+            role: 'tool',
+            tool: call.name,
+            args: call.args,
+            result: { error: String(error) }
+          });
+
           messages.push({
             role: 'tool',
             toolCallId: call.id,
@@ -450,6 +597,54 @@ export class Agent {
           content: renderToolResult(call.name, result)
         });
 
+        // 읽기 결과의 원문을 따로 보관한다. 대화에 넣는 것은 줄여 놓기 때문에
+        // 거기서 표를 뽑으면 뒷부분 행이 통째로 사라진다.
+        const pageText = this.pageTextOf(call.name, result);
+        if (pageText !== null) {
+          lastPageText = pageText.slice(0, MAX_EXTRACT_CHARS);
+          lastPageSource = call.name;
+
+          /**
+           * 수집 작업이면 **읽자마자 뽑는다.** 모델이 `agent_extract_rows` 를 부르기를
+           * 기다리지 않는다 — 실측에서 21번 읽는 동안 기록은 한두 번뿐이었다.
+           *
+           * 같은 본문은 다시 뽑지 않는다. 페이지가 안 바뀌었는데 또 부르면 모델 호출만
+           * 늘고 결과는 전부 중복이다.
+           */
+          if (columns.length > 0 && lastPageText !== extractedFrom) {
+            extractedFrom = lastPageText;
+
+            try {
+              const extracted = await extractTable(this.deps.llm, {
+                source: lastPageSource,
+                pageText: lastPageText,
+                columns
+              });
+              llmCalls += 1;
+
+              const added = collector.add(extracted.rows);
+              if (added > 0) {
+                this.deps.setResults(threadId, collector.all());
+                this.deps.threads.append(threadId, {
+                  role: 'tool',
+                  tool: AGENT_EXTRACT,
+                  args: { auto: true, source: lastPageSource },
+                  result: { added, total: collector.size }
+                });
+              }
+
+              messages.push({
+                role: 'system',
+                content: `이 화면에서 ${added}행을 기록했다. 누적 ${collector.size}행${
+                  expected === null ? '' : ` / 목표 ${expected}행`
+                }. 표는 자동으로 기록되니 너는 다음 화면으로 넘어가라.`
+              });
+            } catch (error) {
+              console.warn('[Agent] 자동 추출 실패', error);
+            }
+          }
+        }
+
         const url = this.urlOf(result, call);
         if (url) {
           lastUrl = url;
@@ -469,6 +664,22 @@ export class Agent {
         lastTool = call.name;
       }
 
+      // 이 단계가 무엇이든 남겼는가 — 새 행이거나, 주소가 바뀌었거나.
+      if (collector.size > rowsBefore || lastUrl !== urlBefore) idleSteps = 0;
+      else idleSteps += 1;
+
+      if (idleSteps >= MAX_IDLE_STEPS) {
+        this.deps.threads.setStatus(threadId, 'failed', 'no_progress');
+        return this.failure(
+          steps,
+          llmCalls,
+          macroHits,
+          collector,
+          `${MAX_IDLE_STEPS}단계 동안 새로 모은 것도 옮긴 화면도 없다`,
+          'no_progress'
+        );
+      }
+
       if (steps % CHECKPOINT_EVERY === 0) {
         await this.checkpoint(threadId, 'steps', steps, { lastUrl, rows: collector.size });
       }
@@ -476,6 +687,28 @@ export class Agent {
   }
 
   // ─────────────────────────────────────────────────────────────
+
+  /**
+   * 에이전트 전용 탭을 연다.
+   *
+   * 사람이 보고 있는 탭을 빼앗지 않는다(불변 조건 3). `tabs_create` 는 배경 탭으로 열고
+   * Handoff 가 소유권을 잡는다 — 사람이 이 탭에 키를 누르면 그때부터 멈춘다.
+   */
+  private async openWorkTab(url: string | null): Promise<number | null> {
+    try {
+      const created = await this.deps.callTool(
+        'tabs_create',
+        url === null ? {} : { url }
+      );
+      if (typeof created === 'object' && created !== null && 'tabId' in created) {
+        const tabId = (created as { tabId: unknown }).tabId;
+        return typeof tabId === 'number' ? tabId : null;
+      }
+    } catch (error) {
+      console.warn('[Agent] 작업 탭 생성 실패 — 활성 탭을 쓴다', error);
+    }
+    return null;
+  }
 
   /** 시작 절차 — session_use → bookmark_list → note_read(site) (CLAUDE.md 내장 에이전트). */
   private async gatherHints(
@@ -553,6 +786,23 @@ export class Agent {
       return String((value as { answer: unknown }).answer ?? '');
     }
     return '';
+  }
+
+  /** 읽기 도구의 결과에서 사람이 읽는 본문을 꺼낸다. 없으면 null. */
+  private pageTextOf(toolName: string, result: unknown): string | null {
+    if (typeof result !== 'object' || result === null) return null;
+
+    if (toolName === 'get_page_text') {
+      const text = (result as { text?: unknown }).text;
+      return typeof text === 'string' && text !== '' ? text : null;
+    }
+
+    // 접근성 트리·네트워크 응답도 표의 출처가 된다 — 모양 그대로 넘긴다.
+    if (toolName === 'read_page' || toolName === 'read_network_requests') {
+      return JSON.stringify(result);
+    }
+
+    return null;
   }
 
   /** 도구 결과에서 현재 URL 을 읽는다. navigate 계열은 인자에도 들어 있다. */

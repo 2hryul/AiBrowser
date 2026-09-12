@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { AgentStatusView } from '../../../../shared/api';
 import type {
   CheckpointView,
   ThreadMessageView,
@@ -52,6 +53,13 @@ export function ThreadsPanel(): JSX.Element {
   const [draft, setDraft] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
+  // ── M4b Composer ──
+  const [agent, setAgent] = useState<AgentStatusView | null>(null);
+  const [running, setRunning] = useState<Set<string>>(new Set());
+  const [proposal, setProposal] = useState<{ threadId: string; host: string; text: string } | null>(
+    null
+  );
+
   const loadThreads = (): void => {
     void window.helm.getThreads().then((list) => {
       setThreads(list);
@@ -63,6 +71,29 @@ export function ThreadsPanel(): JSX.Element {
     const off = window.helm.onThreadsChanged(setThreads);
     loadThreads();
     return off;
+  }, []);
+
+  useEffect(() => {
+    void window.helm.getAgentStatus().then((status) => {
+      setAgent(status);
+      setRunning(new Set(status.running));
+    });
+
+    const offRunning = window.helm.onAgentRunning((payload) => {
+      setRunning((current) => {
+        const next = new Set(current);
+        if (payload.running) next.add(payload.threadId);
+        else next.delete(payload.threadId);
+        return next;
+      });
+    });
+
+    const offProposal = window.helm.onAgentNoteProposal(setProposal);
+
+    return () => {
+      offRunning();
+      offProposal();
+    };
   }, []);
 
   useEffect(() => {
@@ -79,18 +110,59 @@ export function ThreadsPanel(): JSX.Element {
   const current = threads.find((thread) => thread.id === selected) ?? null;
   const latestCheckpoint = checkpoints[0] ?? null;
 
+  const refresh = (threadId: string): void => {
+    void window.helm.getThreadMessages(threadId).then(setMessages);
+    void window.helm.getCheckpoints(threadId).then(setCheckpoints);
+  };
+
+  /**
+   * 보내기 — 가벼운 요청("이 페이지 요약해줘")과 작업 지시("공지 200건 뽑아")가 **같은 입구**를
+   * 쓴다(GOAL-M4 IN SCOPE). 둘을 가르는 것은 사람이 아니라 지시문이다.
+   *
+   * 모델이 설정돼 있지 않으면 예전처럼 스레드에 한 마디 보태는 것으로 떨어진다 —
+   * LLM 이 없다고 기록까지 못 남길 이유는 없다.
+   */
   const say = (): void => {
     if (selected === null || draft.trim() === '') return;
 
-    void window.helm.sayToThread(selected, draft).then((added) => {
-      if (!added) {
-        setMessage('스레드를 찾지 못했습니다');
+    const threadId = selected;
+    const instruction = draft;
+
+    if (!agent?.available) {
+      void window.helm.sayToThread(threadId, instruction).then((added) => {
+        if (!added) {
+          setMessage('스레드를 찾지 못했습니다');
+          return;
+        }
+        setDraft('');
+        setMessage('모델이 설정되지 않아 기록만 남겼습니다(config/llm.json)');
+        refresh(threadId);
+      });
+      return;
+    }
+
+    setDraft('');
+    setMessage(null);
+
+    void window.helm.runAgent(threadId, instruction).then((outcome) => {
+      refresh(threadId);
+      if (!outcome) {
+        setMessage('에이전트를 시작하지 못했습니다');
         return;
       }
-      setDraft('');
-      setMessage(null);
-      void window.helm.getThreadMessages(selected).then(setMessages);
+
+      setMessage(
+        outcome.status === 'done'
+          ? `완료 · ${outcome.steps}단계 · 모델 ${outcome.llmCalls}회 · 캐시 ${outcome.macroHits}회` +
+              (outcome.rows > 0 ? ` · ${outcome.rows}행` : '')
+          : `${outcome.status}: ${outcome.summary}`
+      );
     });
+  };
+
+  const stop = (): void => {
+    if (selected === null) return;
+    void window.helm.stopAgent(selected);
   };
 
   return (
@@ -278,10 +350,45 @@ export function ThreadsPanel(): JSX.Element {
                 ))}
               </ul>
 
+              {proposal && proposal.threadId === current.id ? (
+                <div
+                  data-note-proposal={proposal.host}
+                  className="flex shrink-0 items-center gap-2 border-t border-shell-line bg-amber-500/10 px-4 py-2 text-[12px]"
+                >
+                  <span className="min-w-0 flex-1">
+                    <strong>{proposal.host}</strong> 메모로 남길까요? — {proposal.text}
+                  </span>
+                  <button
+                    type="button"
+                    data-note-accept
+                    className="h-7 rounded bg-shell-accent px-2 text-[11px] text-white hover:opacity-90"
+                    onClick={() => {
+                      void window.helm.acceptAgentNote(true).then(() => setProposal(null));
+                    }}
+                  >
+                    저장
+                  </button>
+                  <button
+                    type="button"
+                    data-note-reject
+                    className="h-7 rounded border border-shell-line px-2 text-[11px] hover:bg-shell-panel"
+                    onClick={() => {
+                      void window.helm.acceptAgentNote(false).then(() => setProposal(null));
+                    }}
+                  >
+                    아니요
+                  </button>
+                </div>
+              ) : null}
+
               <div className="flex shrink-0 items-center gap-2 border-t border-shell-line px-4 py-2">
                 <input
                   data-thread-input
-                  placeholder="이어서 말하기 — 앱을 닫았다 켜도 이 스레드에 남습니다"
+                  placeholder={
+                    agent?.available
+                      ? '무엇을 할까요 — "이 페이지 요약해줘", "공지 200건 표로 뽑아"'
+                      : '이어서 말하기 — 앱을 닫았다 켜도 이 스레드에 남습니다'
+                  }
                   className="h-8 min-w-0 flex-1 rounded border border-shell-line bg-shell-panel px-2 text-[12px] outline-none focus:border-shell-accent"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
@@ -289,16 +396,37 @@ export function ThreadsPanel(): JSX.Element {
                     if (event.key === 'Enter') say();
                   }}
                 />
-                <button
-                  type="button"
-                  data-thread-say
-                  className="h-8 rounded bg-shell-accent px-3 text-[12px] text-white hover:opacity-90 disabled:opacity-40"
-                  disabled={draft.trim() === ''}
-                  onClick={say}
-                >
-                  보내기
-                </button>
+                {running.has(current.id) ? (
+                  <button
+                    type="button"
+                    data-agent-stop
+                    className="h-8 rounded border border-shell-line px-3 text-[12px] hover:bg-shell-panel"
+                    onClick={stop}
+                  >
+                    여기까지
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-thread-say
+                    className="h-8 rounded bg-shell-accent px-3 text-[12px] text-white hover:opacity-90 disabled:opacity-40"
+                    disabled={draft.trim() === ''}
+                    onClick={say}
+                  >
+                    보내기
+                  </button>
+                )}
               </div>
+
+              <p
+                data-agent-status={agent?.available ? 'on' : 'off'}
+                className="shrink-0 border-t border-shell-line px-4 py-1 text-[11px] text-shell-muted"
+              >
+                {agent?.available
+                  ? `모델 ${agent.model} · 배운 매크로 ${agent.macros}개` +
+                    (running.has(current.id) ? ' · 진행 중' : '')
+                  : '모델이 설정되지 않았습니다 — config/llm.json'}
+              </p>
             </>
           ) : (
             <p className="p-6 text-[13px] text-shell-muted">작업을 고르세요.</p>

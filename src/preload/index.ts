@@ -109,6 +109,12 @@ const api: HelmApi = {
   createThread: (title) => ipcRenderer.invoke(IPC.threadCreate, title),
   getThreadMessages: (threadId) => ipcRenderer.invoke(IPC.threadMessages, threadId),
   sayToThread: (threadId, text) => ipcRenderer.invoke(IPC.threadSay, threadId, text),
+
+  // ── M4b 내장 에이전트 ──
+  getAgentStatus: () => ipcRenderer.invoke(IPC.agentStatus),
+  runAgent: (threadId, instruction) => ipcRenderer.invoke(IPC.agentRun, threadId, instruction),
+  stopAgent: (threadId) => ipcRenderer.invoke(IPC.agentStop, threadId),
+  acceptAgentNote: (accept) => ipcRenderer.invoke(IPC.agentNoteAccept, accept),
   resumeThread: (threadId) => ipcRenderer.invoke(IPC.threadResume, threadId),
   stopThread: (threadId) => ipcRenderer.invoke(IPC.threadStop, threadId),
 
@@ -177,7 +183,9 @@ const api: HelmApi = {
   onCheckpointsChanged: (listener) => subscribe(IPC.checkpointsChanged, listener),
   onSessionsChanged: (listener) => subscribe(IPC.sessionsChanged, listener),
   onTrackedUrlsChanged: (listener) => subscribe(IPC.pageHistoryUrls, listener),
-  onWorkflowRunsChanged: (listener) => subscribe(IPC.workflowRunsChanged, listener)
+  onWorkflowRunsChanged: (listener) => subscribe(IPC.workflowRunsChanged, listener),
+  onAgentRunning: (listener) => subscribe(IPC.agentRunning, listener),
+  onAgentNoteProposal: (listener) => subscribe(IPC.agentNoteProposal, listener)
 };
 
 contextBridge.exposeInMainWorld('helm', api);

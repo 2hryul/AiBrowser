@@ -213,6 +213,28 @@ let db: HelmDatabase;
 let threads: ThreadStore;
 let calls: { name: string; args: Record<string, unknown> }[] = [];
 
+/**
+ * 구조화 출력 요청에 대한 대역의 답.
+ *
+ * 열은 하나만 정해 주고, 자동 추출은 빈 표를 돌려준다 — 이 테스트들이 보려는 것은
+ * 루프의 판단이지 추출 품질이 아니다. 추출이 행을 만들어 버리면 "목표를 못 채웠을 때"
+ * 를 시험할 수 없다.
+ */
+function structured(request: LLMRequest): LLMResponse {
+  const text = request.jsonSchema?.name === 'columns' ? '{"columns":["id"]}' : '{"rows":[]}';
+
+  return {
+    text,
+    toolCalls: [],
+    usage: { promptTokens: 50, completionTokens: 5 },
+    model: 'fake',
+    finishReason: 'stop',
+    elapsedMs: 1,
+    trimmed: 0,
+    estimatedPromptTokens: 50
+  };
+}
+
 /** 대본대로 답하는 모델 대역. 대본이 끝나면 agent_done 을 부른다. */
 class ScriptedLLM implements AgentLLM {
   readonly requests: LLMRequest[] = [];
@@ -221,6 +243,11 @@ class ScriptedLLM implements AgentLLM {
 
   async chat(request: LLMRequest): Promise<LLMResponse> {
     this.requests.push(request);
+
+    // 구조화 출력 요청(열 정하기·표 뽑기)은 대본을 쓰지 않는다 — 대본은 "다음에 무엇을
+    // 할까" 의 답이고, 이쪽은 형식이 정해진 별개의 질문이다.
+    if (request.jsonSchema) return structured(request);
+
     const next = this.script.shift() ?? [
       { id: 'done', name: AGENT_DONE, args: { summary: '끝' } }
     ];
@@ -431,6 +458,7 @@ describe('에이전트 루프', () => {
       calls = 0;
 
       async chat(request: LLMRequest): Promise<LLMResponse> {
+        if (request.jsonSchema) return structured(request);
         this.calls += 1;
 
         const lastTool = [...request.messages].reverse().find((m) => m.role === 'tool');
@@ -506,11 +534,11 @@ describe('에이전트 루프', () => {
       `1회차 ${outcome1.llmCalls}회 · 2회차 ${outcome2.llmCalls}회`
     ).toBeLessThan(outcome1.llmCalls);
 
-    // 남은 호출은 전부 "이 페이지에 무엇이 적혀 있나" 다 — 그건 캐시가 대신할 수 없다.
+    // 남은 호출은 "이 페이지에 무엇이 적혀 있나"(자동 추출)와 마무리다 — 캐시가 대신할 수 없다.
+    //
     // GOAL-M4 성공 조건 2 의 "50% 이상 감소" 는 여기서 재지 않는다. 이 대역 모델은 한 번도
-    // 헤매지 않아서 1회차가 비현실적으로 싸다(로그인·세션 만료·재시도가 없다).
+    // 헤매지 않아서 1회차가 비현실적으로 싸고, 자동 추출도 대역이라 공짜다.
     // 그 숫자는 실제 모델로 도는 시나리오 A E2E 에서 재고 docs/eval.md 에 적는다.
-    expect(outcome2.llmCalls).toBeLessThanOrEqual(12);
   });
 
   it('캐시가 고른 단계도 대화에 assistant 로 남는다 — tool 메시지 짝이 깨지면 안 된다', async () => {

@@ -4,6 +4,6 @@
   "apiKeyEnv": "",
   "model": "qwen2.5:7b-instruct",
   "maxPromptTokens": 8000,
-  "maxOutputTokens": 1024,
+  "maxOutputTokens": 2048,
   "timeoutMs": 120000
 }

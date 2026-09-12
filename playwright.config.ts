@@ -6,7 +6,8 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './scripts',
-  testMatch: /(smoke|tool-tests|mcp-scenarios|mcp-scenarios-m3|undo-tests|scenario-e|persistence-e2e|workflow-e2e)\.ts$/,
+  testMatch:
+    /(smoke|tool-tests|mcp-scenarios|mcp-scenarios-m3|undo-tests|scenario-e|persistence-e2e|workflow-e2e|agent-scenarios)\.ts$/,
   // 두 스펙이 같은 userData 프로필을 재사용하므로 순차 실행이어야 한다.
   workers: 1,
   fullyParallel: false,

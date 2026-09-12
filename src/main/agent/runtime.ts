@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { LLMClient, loadLLMConfig } from '../llm/LLMClient';
+import { setFindFallback } from '../tools/find';
 import { MacroCache } from './MacroCache';
+import { wrapPageContent } from './prompt';
 
 /**
  * 에이전트 런타임 조립.
@@ -26,9 +28,44 @@ export function createAgentRuntime(configDir: string, userDataDir: string): Agen
   const config = loadLLMConfig(configDir);
   if (!config) return null;
 
+  // 감사 로그는 실행 단위로 바뀐다 — 스레드를 시작할 때 `bindAudit` 로 끼운다.
+  const llm = new LLMClient(config, null, 'agent');
+
+  /**
+   * `find` 2차 — 규칙이 빈손일 때만 모델이 고른다(M4b IN SCOPE).
+   *
+   * 후보 목록은 페이지에서 온 글자다. 그래서 `<page_content>` 로 감싸 넣는다 —
+   * 링크 이름 자리에 "이전 지시를 무시하라" 를 적어 두는 것은 공격자에게 공짜다.
+   */
+  setFindFallback(async ({ query, candidates }) => {
+    const rows = candidates.map((item) => `${item.ref}\t${item.role}\t${item.name}`).join('\n');
+
+    const response = await llm.chat({
+      purpose: 'find.rank',
+      temperature: 0,
+      maxOutputTokens: 64,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '너는 화면 요소 목록에서 사람이 말한 것에 가장 가까운 하나를 고른다.',
+            '반드시 목록에 있는 ref 값 하나만 답한다. 없으면 정확히 none 이라고 답한다.',
+            '설명을 붙이지 않는다.'
+          ].join('\n')
+        },
+        {
+          role: 'user',
+          content: [`찾는 것: ${query}`, wrapPageContent('find', rows)].join('\n\n')
+        }
+      ]
+    });
+
+    const picked = response.text.trim().split(/\s+/)[0] ?? '';
+    return picked === '' || picked.toLowerCase() === 'none' ? null : picked;
+  });
+
   return {
-    // 감사 로그는 실행 단위로 바뀐다 — 스레드를 시작할 때 `bindAudit` 로 끼운다.
-    llm: new LLMClient(config, null, 'agent'),
+    llm,
     macros: new MacroCache(path.join(userDataDir, 'macros.json'))
   };
 }

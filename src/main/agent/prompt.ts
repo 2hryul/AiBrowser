@@ -50,6 +50,10 @@ export const SYSTEM_PROMPT = [
   '5. 일이 끝났다고 생각하면 `' + AGENT_DONE + '` 을 부른다. 다만 끝났는지는 사람이 시킨',
   '   조건으로 판정한다 — 아직이라고 답이 오면 이유를 읽고 계속한다.',
   '6. 같은 도구를 같은 인자로 반복하지 않는다. 두 번 해서 안 되면 다른 수를 쓴다.',
+  '   - 목록·표를 읽을 때는 `get_page_text` 를 쓴다. `read_page` 는 누를 것을 찾을 때만 쓴다.',
+  '   - **좌표를 지어내 클릭하지 않는다.** 누를 것이 있으면 `find` 나 `read_page` 로 먼저 찾고',
+  '     거기서 나온 ref 로 누른다. 화면을 못 본 채 찍는 클릭은 엉뚱한 것을 누른다.',
+  '   - 다음 페이지로 갈 때는 주소를 직접 바꾸는 `navigate` 가 가장 확실하다(`?page=2`).',
   '7. 비밀번호·토큰을 읽거나 적지 않는다. 화면에 가려진 값(***)은 그대로 둔다.',
   '',
   '## 답하는 방법',
@@ -117,17 +121,41 @@ export function renderToolResult(toolName: string, result: unknown, maxChars = 4
 }
 
 /**
+ * 에이전트에게 보여 줄 때만 덮어쓰는 도구 설명.
+ *
+ * 도구 설명은 MCP 클라이언트도 보는 공용 문구다. 그런데 **작은 모델은 시스템 프롬프트보다
+ * 도구 설명을 훨씬 강하게 따른다** — 실측에서 "목록은 get_page_text 로 읽어라" 를 시스템
+ * 프롬프트에 적어 두었는데도 모델이 `read_page` 를 16번 연속으로 불렀다(artifacts/m4b).
+ *
+ * 그래서 공용 설명은 그대로 두고, **에이전트에게 건네는 사본에만** 쓰임새를 덧붙인다.
+ * 도구가 하는 일을 바꾸는 것이 아니라 언제 쓰는 것인지를 같은 자리에 적는 것이다.
+ */
+const AGENT_TOOL_HINTS: Record<string, string> = {
+  get_page_text:
+    '**목록·표·본문의 내용을 읽을 때는 반드시 이 도구를 쓴다.** 표의 행을 뽑으려면 여기서 읽어라.',
+  read_page:
+    '**누를 것을 찾을 때만 쓴다**(버튼·링크의 ref). 표의 내용을 읽는 용도가 아니다 — 그건 get_page_text 다.',
+  computer:
+    '**좌표를 지어내지 말고** read_page·find 가 준 ref 로만 누른다. 화면을 못 본 채 찍는 클릭은 엉뚱한 것을 누른다.',
+  navigate: '주소를 직접 바꾼다. 다음 페이지로 갈 때 가장 확실한 방법이다(`?page=2`).'
+};
+
+/**
  * ToolSurface 정의를 LLM 도구 정의로 옮긴다.
  *
  * 전부 넘기지 않는다 — 도구 정의도 프롬프트에 실리고, 7B 모델에 33개를 한꺼번에 주면
  * 고르는 정확도가 떨어진다. 무엇을 줄지는 Agent 가 정하고 여기서는 모양만 바꾼다.
  */
 export function toLLMTools(tools: readonly Tool<never, never>[]): LLMToolDef[] {
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.input
-  }));
+  return tools.map((tool) => {
+    const hint = AGENT_TOOL_HINTS[tool.name];
+
+    return {
+      name: tool.name,
+      description: hint === undefined ? tool.description : `${tool.description}\n${hint}`,
+      parameters: tool.input
+    };
+  });
 }
 
 export function extractToolDef(): LLMToolDef {
@@ -191,6 +219,18 @@ export function openingMessages(input: {
 
   messages.push({ role: 'user', content: input.instruction });
   return messages;
+}
+
+/**
+ * 지시문에 적힌 첫 주소를 읽는다. 작업 탭을 어디에 열지 정하는 데 쓴다.
+ *
+ * 모델에게 맡기지 않는 이유가 실측에 있다 — 빈 탭에서 시작하자 7B 모델은 `navigate` 를
+ * 한 번도 부르지 않고 홈 화면을 `read_page` 하고 좌표를 찍어 클릭하며 14단계를 헤맸다
+ * (artifacts/m4b, 1회차). 사람이라면 주소창에 주소를 넣고 시작한다. 그 한 걸음은 루프가 한다.
+ */
+export function firstUrlIn(instruction: string): string | null {
+  const match = /((?:app|https?):\/\/[^\s"'<>)\]]+)/i.exec(instruction);
+  return match?.[1] ?? null;
 }
 
 /**

@@ -17,9 +17,32 @@ interface Args {
 }
 
 export interface FindMatch extends AxNode {
-  /** 어떤 규칙으로 맞았는지 — 왜 이게 나왔는지 설명 가능해야 한다. */
-  rule: 'exact' | 'prefix' | 'substring' | 'normalized' | 'value';
+  /**
+   * 어떤 규칙으로 맞았는지 — 왜 이게 나왔는지 설명 가능해야 한다.
+   * `llm` 은 규칙이 하나도 못 맞혔을 때 모델이 고른 것이다(2차).
+   */
+  rule: 'exact' | 'prefix' | 'substring' | 'normalized' | 'value' | 'llm';
   score: number;
+}
+
+/**
+ * 2차 선택 — 규칙이 아무것도 못 맞혔을 때만 부른다(M4b).
+ *
+ * 주입식이다. `find` 는 MCP 클라이언트도 쓰는 ToolSurface 도구이고, 모델이 없는 환경에서도
+ * 1차 규칙만으로 동작해야 한다. 에이전트 런타임이 있을 때만 이 자리가 채워진다.
+ *
+ * 후보 목록은 페이지에서 온 것이므로 **격리해서** 넘긴다 — 링크 이름에 "이전 지시를 무시하고"
+ * 라고 적어 두면 그것도 페이지가 쓴 글이다.
+ */
+export type FindFallback = (input: {
+  query: string;
+  candidates: { ref: string; role: string; name: string }[];
+}) => Promise<string | null>;
+
+let findFallback: FindFallback | null = null;
+
+export function setFindFallback(fallback: FindFallback | null): void {
+  findFallback = fallback;
 }
 
 interface Result {
@@ -119,6 +142,31 @@ const findTool: Tool<Args, Result> = {
     }
 
     matches.sort((a, b) => b.score - a.score || a.name.length - b.name.length);
+
+    /**
+     * 규칙이 하나도 못 맞혔을 때만 모델에게 묻는다.
+     *
+     * 규칙이 맞힌 결과를 모델이 뒤집게 두지 않는다 — 1차가 맞힌 것은 설명 가능한 근거가 있고,
+     * 모델의 선택은 그렇지 않다. 2차는 **빈손일 때의 마지막 수단**이다.
+     */
+    if (matches.length === 0 && findFallback) {
+      const candidates = page.nodes
+        .filter((node) => (args.role ? node.role === args.role : true))
+        .filter((node) => node.name.trim() !== '')
+        .slice(0, 40)
+        .map((node) => ({ ref: node.ref, role: node.role, name: node.name }));
+
+      if (candidates.length > 0) {
+        const picked = await findFallback({ query: args.query, candidates }).catch((error) => {
+          console.warn('[find] 2차 선택 실패 — 규칙 결과만 돌려준다', error);
+          return null;
+        });
+
+        const node = picked === null ? undefined : page.nodes.find((item) => item.ref === picked);
+        // 모델이 없는 ref 를 지어내면 버린다. 없는 것을 클릭하게 둘 수는 없다.
+        if (node) matches.push({ ...node, rule: 'llm', score: 10 });
+      }
+    }
 
     return {
       tabId,

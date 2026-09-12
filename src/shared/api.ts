@@ -118,6 +118,26 @@ export interface ScheduleView {
   runCount: number;
 }
 
+export interface AgentStatusView {
+  available: boolean;
+  provider: 'openai' | 'anthropic' | null;
+  model: string | null;
+  /** 배운 매크로 수 */
+  macros: number;
+  running: string[];
+}
+
+export interface AgentOutcomeView {
+  status: 'done' | 'failed' | 'paused' | 'stopped';
+  steps: number;
+  llmCalls: number;
+  macroHits: number;
+  rows: number;
+  duplicates: number;
+  summary: string;
+  reason: string | null;
+}
+
 export interface HelmApi {
   // 탭
   getState(): Promise<BrowserState>;
@@ -222,6 +242,20 @@ export interface HelmApi {
   getThreadMessages(threadId: string): Promise<ThreadMessageView[]>;
   /** 사람이 한 마디 보탠다. */
   sayToThread(threadId: string, text: string): Promise<ThreadMessageView | null>;
+
+  // ── M4b 내장 에이전트 ──
+  /** 모델이 설정돼 있는가. 없으면 입력칸은 "이어 말하기" 로만 동작한다. */
+  getAgentStatus(): Promise<AgentStatusView>;
+  /** 지시를 에이전트에게 준다. 가벼운 요청과 작업 지시가 같은 입구를 쓴다. */
+  runAgent(threadId: string, instruction: string): Promise<AgentOutcomeView | null>;
+  /** "여기까지" — 도는 에이전트를 끊는다. */
+  stopAgent(threadId: string): Promise<boolean>;
+  onAgentRunning(handler: (payload: { threadId: string; running: boolean }) => void): () => void;
+  /** 사이트 메모 제안이 왔다. 사람이 받아야 저장된다. */
+  onAgentNoteProposal(
+    handler: (payload: { threadId: string; host: string; text: string }) => void
+  ): () => void;
+  acceptAgentNote(accept: boolean): Promise<unknown>;
   /** "이어서" — 마지막 체크포인트로 되돌리고 running 으로. */
   resumeThread(threadId: string): Promise<ResumeView | null>;
   /** "여기까지" — 스레드를 끝내고 탭 소유권을 사람에게. */

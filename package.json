@@ -29,6 +29,7 @@
     "test:ops": "vitest run tests/ops.test.ts",
     "test:workflow": "vitest run tests/workflow.test.ts tests/workflow-golden.test.ts tests/evidence.test.ts tests/adapters.test.ts",
     "test:workflow-e2e": "electron-vite build && playwright test scripts/workflow-e2e.ts",
+    "test:agent-e2e": "electron-vite build && playwright test scripts/agent-scenarios.ts",
     "eval": "electron-vite build && tsx scripts/eval.ts"
   },
   "dependencies": {
