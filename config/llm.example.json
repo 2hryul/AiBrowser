@@ -1,0 +1,9 @@
+{
+  "provider": "openai",
+  "baseUrl": "http://127.0.0.1:11434/v1/chat/completions",
+  "apiKeyEnv": "",
+  "model": "qwen2.5:7b-instruct",
+  "maxPromptTokens": 8000,
+  "maxOutputTokens": 1024,
+  "timeoutMs": 120000
+}

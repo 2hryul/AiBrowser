@@ -4,6 +4,7 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import helmRules from './eslint-rules/no-credential-files.mjs';
 import toolRules from './eslint-rules/require-tool-inverse.mjs';
+import llmRules from './eslint-rules/restrict-llm-import.mjs';
 
 export default tseslint.config(
   {
@@ -66,6 +67,14 @@ export default tseslint.config(
     plugins: { helmTools: toolRules },
     rules: {
       'helmTools/require-tool-inverse': 'error'
+    }
+  },
+  {
+    // GOAL-M4 CONSTRAINTS: 모델을 부르는 자리를 세어 둘 수 있어야 값의 출처를 물릴 수 있다.
+    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts'],
+    plugins: { helmLlm: llmRules },
+    rules: {
+      'helmLlm/restrict-llm-import': 'error'
     }
   },
   {
