@@ -18,6 +18,7 @@
     "test:tools": "electron-vite build && playwright test scripts/tool-tests.ts",
     "test:mcp": "electron-vite build && playwright test scripts/mcp-scenarios.ts",
     "test:policy": "vitest run tests/policy.test.ts",
+    "test:agent": "vitest run tests/agent.test.ts tests/llm.test.ts tests/restrict-llm-import.test.ts tests/agent-injection.test.ts",
     "test:scenarios": "electron-vite build && playwright test scripts/mcp-scenarios-m3.ts",
     "test:undo": "electron-vite build && playwright test scripts/undo-tests.ts",
     "test:persistence": "vitest run tests/persistence.test.ts tests/portals.test.ts",
