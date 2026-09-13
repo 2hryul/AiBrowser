@@ -53,7 +53,7 @@ export const SYSTEM_PROMPT = [
   '   - 목록·표를 읽을 때는 `get_page_text` 를 쓴다. `read_page` 는 누를 것을 찾을 때만 쓴다.',
   '   - **좌표를 지어내 클릭하지 않는다.** 누를 것이 있으면 `find` 나 `read_page` 로 먼저 찾고',
   '     거기서 나온 ref 로 누른다. 화면을 못 본 채 찍는 클릭은 엉뚱한 것을 누른다.',
-  '   - 다음 페이지로 갈 때는 주소를 직접 바꾸는 `navigate` 가 가장 확실하다(`?page=2`).',
+  '   - 다음 페이지로 갈 때는 `navigate` 가 가장 확실하다. `?page=2` 처럼 지금 주소 기준으로 줘도 된다.',
   '7. 비밀번호·토큰을 읽거나 적지 않는다. 화면에 가려진 값(***)은 그대로 둔다.',
   '',
   '## 답하는 방법',
@@ -137,7 +137,8 @@ const AGENT_TOOL_HINTS: Record<string, string> = {
     '**누를 것을 찾을 때만 쓴다**(버튼·링크의 ref). 표의 내용을 읽는 용도가 아니다 — 그건 get_page_text 다.',
   computer:
     '**좌표를 지어내지 말고** read_page·find 가 준 ref 로만 누른다. 화면을 못 본 채 찍는 클릭은 엉뚱한 것을 누른다.',
-  navigate: '주소를 직접 바꾼다. 다음 페이지로 갈 때 가장 확실한 방법이다(`?page=2`).'
+  navigate:
+    '주소를 직접 바꾼다. 다음 페이지로 갈 때 가장 확실한 방법이다 — `?page=2` 처럼 지금 주소 기준으로 줘도 되고, 전체 주소를 줘도 된다.'
 };
 
 /**
@@ -219,6 +220,38 @@ export function openingMessages(input: {
 
   messages.push({ role: 'user', content: input.instruction });
   return messages;
+}
+
+/**
+ * 로그인 화면으로 밀려났는가.
+ *
+ * CLAUDE.md(코브라우징·Handoff): "로그인 페이지 리다이렉트 감지 → ask_user + Inbox
+ * login_required + 스레드 waiting_login". 이 감지가 없으면 에이전트는 **같은 주소로 계속
+ * 되돌아간다** — 실측에서 `navigate` 를 여덟 번 부르고 매번 로그인으로 되밀렸고,
+ * 추출기는 로그인 화면에서 세 행을 뽑아 결과표에 넣었다(artifacts/m4b).
+ *
+ * 주소만 본다. 화면 글자로 판단하면 "로그인" 이라는 낱말이 들어간 공지 하나에 오작동한다.
+ */
+const LOGIN_PATH = /(^|\/)(login|signin|sign-in|auth|sso|account\/login)(\/|$)/i;
+
+export function looksLikeLoginUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return LOGIN_PATH.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 요청한 주소가 로그인 화면으로 되밀렸는가.
+ *
+ * 처음부터 로그인 페이지로 가라고 한 경우(사람이 그렇게 시켰을 수 있다)는 게이트가 아니다.
+ * **요청과 도착이 다르고, 도착이 로그인**일 때만 그렇게 본다.
+ */
+export function redirectedToLogin(requestedUrl: string, finalUrl: string): boolean {
+  if (finalUrl === '' || requestedUrl === finalUrl) return false;
+  return looksLikeLoginUrl(finalUrl) && !looksLikeLoginUrl(requestedUrl);
 }
 
 /**

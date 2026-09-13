@@ -1,5 +1,85 @@
 {
   "model": "qwen2.5:7b-instruct",
-  "approvals": [],
+  "login": "러너가 로그인함",
+  "scenarioA_round1": {
+    "status": "failed",
+    "steps": 13,
+    "llmCalls": 14,
+    "macroHits": 0,
+    "rows": 1,
+    "uniqueIds": 1,
+    "duplicates": 3,
+    "badDates": 1,
+    "reason": "incomplete",
+    "sample": [
+      {
+        "번호": "201",
+        "제목": "2023년 연차 휻가 사용 안내"
+      }
+    ]
+  },
+  "scenarioA_round2": {
+    "status": "failed",
+    "steps": 13,
+    "llmCalls": 14,
+    "macroHits": 0,
+    "rows": 21,
+    "uniqueIds": 21,
+    "duplicates": 4,
+    "badDates": 1,
+    "reason": "incomplete",
+    "sample": [
+      {
+        "id": "1",
+        "postedAt": "2023-10-01",
+        "title": "公告标题1"
+      },
+      {
+        "id": "2",
+        "postedAt": "2023-10-02",
+        "title": "公告标题2"
+      }
+    ]
+  },
+  "scenarioA_round3": {
+    "status": "failed",
+    "steps": 15,
+    "llmCalls": 17,
+    "macroHits": 1,
+    "rows": 20,
+    "uniqueIds": 20,
+    "duplicates": 0,
+    "badDates": 20,
+    "reason": "incomplete",
+    "sample": [
+      {
+        "id": "1",
+        "title": "사내 공지 001 — 인사팀 안내",
+        "postedAt": "2026-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "2",
+        "title": "사내 공지 002 — 총무팀 안내",
+        "postedAt": "2026-01-02T00:00:00.000Z"
+      }
+    ]
+  },
+  "scenarioA": {
+    "passed": 0,
+    "of": 3,
+    "llmCallsByRound": [
+      14,
+      14,
+      17
+    ],
+    "macroHitsByRound": [
+      0,
+      0,
+      1
+    ]
+  },
+  "approvals": [
+    "site:portal-a@portal-a"
+  ],
   "prompts": []
 }

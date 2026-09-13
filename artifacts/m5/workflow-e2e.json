@@ -23,10 +23,10 @@
   },
   "inbox_shot": "schedule-inbox.png",
   "schedule": {
-    "cron": "0 18 14 * * *",
+    "cron": "0 24 14 * * *",
     "kind": "result",
     "title": "settle_vs_ledger_daily 2026-03-02 — PASS",
-    "evidencePath": "D:\\source\\AIBrowser\\artifacts\\m5\\e2e\\evidence\\settle_vs_ledger_daily-m5-eval-minute-mtxxp3k5",
+    "evidencePath": "D:\\source\\AIBrowser\\artifacts\\m5\\e2e\\evidence\\settle_vs_ledger_daily-m5-eval-minute-mtzdco0c",
     "runCount": 1
   },
   "approvals": [

@@ -238,6 +238,16 @@ export class MacroCache {
   observe(state: MacroState, call: MacroCall): void {
     if (!isCacheable(call.tool)) return;
 
+    /**
+     * **자기 자신으로 가는 전이는 배우지 않는다.**
+     *
+     * 모델이 같은 도구를 연달아 부르면(막혀서 헤맬 때 흔하다) 그 자리에는
+     * "X 다음에 X" 라는 전이가 관찰된다. 그걸 매크로로 굳히면 캐시가 그 반복을 **증폭**한다 —
+     * 실측에서 `read_page` 자기 반복을 배운 캐시가 열 단계를 대신 돌며 한 행도 못 모았다
+     * (artifacts/m4b). 되풀이는 규칙이 아니라 막힌 신호다.
+     */
+    if (state.lastTool === call.tool) return;
+
     const key = macroKey(state);
     const existing = this.entries.get(key);
 

@@ -15,6 +15,7 @@ import {
   isPageRead,
   openingMessages,
   parseExpectedCount,
+  redirectedToLogin,
   renderToolResult,
   toLLMTools
 } from './prompt';
@@ -74,6 +75,8 @@ const TAB_SCOPED_TOOLS = new Set([
 
 /** 같은 도구+인자를 이만큼 반복하면 사람에게 묻는다(CLAUDE.md 내장 에이전트). */
 const REPEAT_LIMIT = 3;
+/** 같은 동작을 몇 번까지 사람에게 물을 것인가. 넘으면 묻지 않고 멈춘다. */
+const MAX_REPEAT_CHALLENGES = 2;
 /** `done` 을 몇 번까지 되돌려 보낼 것인가. 계속 미루면 멈추는 편이 낫다. */
 const MAX_DONE_REJECTIONS = 5;
 /** 자동 체크포인트 주기(M4a). */
@@ -81,11 +84,13 @@ const CHECKPOINT_EVERY = 10;
 /**
  * 캐시만으로 연속해서 돌 수 있는 단계 수.
  *
- * 30 으로 두었다가 실측에서 한 실행이 **캐시로만 180단계를 돌며 0행을 모았다**
- * (artifacts/m4b 3회차). 매크로는 "다음엔 이걸 했었다" 만 알지 그게 쓸모 있는지는 모른다.
- * 그래서 두 가지를 건다 — 연속 상한을 줄이고, 그 사이에 **수집이 늘지 않으면 그 자리를 버린다.**
+ * 30 → 10 → 4 로 두 번 줄였다. 매크로는 "다음엔 이걸 했었다" 만 알지 그게 쓸모 있는지는
+ * 모른다. 30 일 때 한 실행이 **캐시로만 180단계를 돌며 0행을 모았고**, 10 일 때는
+ * `read_page ↔ get_page_text` 두 칸짜리 되돌이를 열 단계 돌았다(artifacts/m4b).
+ * 한 페이지를 처리하는 데 캐시가 대신할 수 있는 단계는 두세 개다 — 그보다 길게 돌고 있으면
+ * 맞히는 중이 아니라 헤매는 중이다. 그 사이에 **수집이 늘지 않으면 그 자리를 버린다.**
  */
-const MAX_MACRO_STREAK = 10;
+const MAX_MACRO_STREAK = 4;
 /** 답의 형태가 요청과 어긋날 때 다시 묻는 횟수. */
 const MAX_ANSWER_REJECTIONS = 2;
 /** 진전 없이 흘려보낼 수 있는 단계 수. 넘으면 멈춘다 — 2,000스텝을 헛돌게 두지 않는다. */
@@ -183,6 +188,18 @@ interface StepRecord {
   argsKey: string;
 }
 
+/**
+ * 매크로로 남길 수 있는 인자만 남긴다.
+ *
+ * `tabId` 는 **이번 실행에서만 뜻이 있는 손잡이**다. 캐시에 그대로 넣으면 다음 실행이
+ * 지난 실행의 탭 번호를 재생한다 — 실측에서 2회차가 자기 탭(4)을 열어 두고 1회차의
+ * 탭(3)을 계속 만졌다(artifacts/m4b). 비워 두면 루프가 이번 작업 탭으로 채운다.
+ */
+function portable(args: Record<string, unknown>): Record<string, unknown> {
+  const { tabId: _tabId, ...rest } = args;
+  return rest;
+}
+
 export class Agent {
   constructor(private readonly deps: AgentDeps) {}
 
@@ -220,6 +237,8 @@ export class Agent {
     const tools = this.buildToolDefs();
     const recent: StepRecord[] = [];
     const seenHosts = new Set<string>();
+    /** 같은 동작으로 사람을 부른 횟수. 같은 자리를 두 번까지만 봐준다. */
+    const challenges = new Map<string, number>();
 
     let steps = 0;
     let llmCalls = 0;
@@ -426,6 +445,31 @@ export class Agent {
 
         if (repeated) {
           recent.length = 0;
+
+          /**
+           * 같은 자리를 두 번까지만 봐준다.
+           *
+           * 사람이 "계속" 이라고 답하면 한 번 더 기회를 주는 것이 맞다. 그런데 그 뒤에도
+           * 똑같이 반복하면 **다시 묻는 것은 사람을 괴롭히는 일**이다 — 실측에서 한 실행이
+           * 열다섯 단계 동안 같은 질문을 세 번 하고 한 행도 못 모았다(artifacts/m4b).
+           * 두 번째부터는 묻지 않고 멈춘다.
+           */
+          const signature = `${call.name}:${argsKey}`;
+          const challenged = (challenges.get(signature) ?? 0) + 1;
+          challenges.set(signature, challenged);
+
+          if (challenged > MAX_REPEAT_CHALLENGES) {
+            this.deps.threads.setStatus(threadId, 'failed', 'repeat');
+            return this.failure(
+              steps,
+              llmCalls,
+              macroHits,
+              collector,
+              `같은 동작(${call.name})을 계속 반복해 멈췄다`,
+              'repeat'
+            );
+          }
+
           await this.checkpoint(threadId, 'ask_user', steps);
 
           const answer = await this.deps.callTool('ask_user', {
@@ -534,7 +578,7 @@ export class Agent {
           });
 
           if (fromMacro) this.deps.macros.confirm(state, { tool: call.name, args: call.args });
-          else this.deps.macros.observe(state, { tool: call.name, args: call.args });
+          else this.deps.macros.observe(state, { tool: call.name, args: portable(call.args) });
 
           lastTool = call.name;
           continue;
@@ -588,7 +632,7 @@ export class Agent {
         } else if (fromMacro) {
           this.deps.macros.confirm(state, { tool: call.name, args: call.args });
         } else {
-          this.deps.macros.observe(state, { tool: call.name, args: call.args });
+          this.deps.macros.observe(state, { tool: call.name, args: portable(call.args) });
         }
 
         this.deps.threads.append(threadId, {
@@ -616,6 +660,43 @@ export class Agent {
             columns.length > 0 && isPageRead(call.name) ? BROWSE_SNIPPET_CHARS : undefined
           )
         });
+
+        /**
+         * 로그인 화면으로 되밀렸으면 **거기서 멈춘다**(CLAUDE.md 코브라우징·Handoff).
+         *
+         * 이 감지가 없을 때 무슨 일이 벌어지는지는 실측으로 봤다 — 에이전트가 같은 주소로
+         * 여덟 번 되돌아갔고, 추출기는 로그인 화면에서 세 행을 뽑아 결과표에 넣었다.
+         * 로그인은 사람만 할 수 있는 일이므로 모델에게 더 시도시키는 것이 의미가 없다.
+         */
+        const gate = this.loginGate(result, call);
+        if (gate) {
+          this.deps.threads.setStatus(threadId, 'waiting_login', 'login_required');
+          this.deps.inbox.post({
+            kind: 'login_required',
+            threadId,
+            title: `로그인이 필요합니다 — ${routeOf(gate).host}`,
+            summary: `${gate} 로 밀려났습니다. 로그인한 뒤 "이어서" 를 누르세요.`
+          });
+
+          await this.checkpoint(threadId, 'ask_user', steps, { lastUrl: gate });
+          await this.deps
+            .callTool('ask_user', {
+              question: `로그인 화면으로 이동했습니다(${gate}). 로그인한 뒤 알려 주세요.`,
+              options: ['로그인함', '중단']
+            })
+            .catch(() => ({ answer: '중단' }));
+
+          return {
+            status: 'paused',
+            steps,
+            llmCalls,
+            macroHits,
+            rows: collector.size,
+            duplicates: collector.duplicateCount,
+            summary: '로그인이 필요해 멈췄다',
+            reason: 'login_required'
+          };
+        }
 
         // 읽기 결과의 원문을 따로 보관한다. 대화에 넣는 것은 줄여 놓기 때문에
         // 거기서 표를 뽑으면 뒷부분 행이 통째로 사라진다.
@@ -806,6 +887,27 @@ export class Agent {
       return String((value as { answer: unknown }).answer ?? '');
     }
     return '';
+  }
+
+  /**
+   * 이 결과가 로그인 게이트인가. 맞으면 밀려난 주소를, 아니면 null.
+   *
+   * `navigate` 는 `requestedUrl`·`finalUrl` 을 함께 준다(M2). 읽기 도구는 현재 주소만
+   * 주므로, 그때는 **요청했던 시작 주소**와 견준다.
+   */
+  private loginGate(result: unknown, call: LLMToolCall): string | null {
+    if (typeof result !== 'object' || result === null) return null;
+
+    const finalUrl = String((result as { finalUrl?: unknown }).finalUrl ?? '');
+    const requested = String(
+      (result as { requestedUrl?: unknown }).requestedUrl ?? call.args['url'] ?? ''
+    );
+
+    if (finalUrl !== '' && requested !== '') {
+      return redirectedToLogin(requested, finalUrl) ? finalUrl : null;
+    }
+
+    return null;
   }
 
   /** 읽기 도구의 결과에서 사람이 읽는 본문을 꺼낸다. 없으면 null. */

@@ -131,6 +131,82 @@ async function watchApprovals(): Promise<void> {
   }
 }
 
+/**
+ * 사람이 먼저 로그인해 둔다.
+ *
+ * 포털 A 는 로그인하지 않으면 목록 요청을 로그인 화면으로 되민다. 실측에서 에이전트는
+ * 여기서 막혀 1페이지에 닿지도 못했다 — 그리고 그건 **맞는 동작**이다. 로그인은 사람만
+ * 할 수 있는 일이고(CLAUDE.md 불변 조건 9: 토큰 이관 금지), 에이전트는 감지해서 멈춘다.
+ *
+ * 그래서 시나리오의 전제를 실제 순서대로 만든다 — 사람이 로그인한 다음 수집을 시킨다.
+ * 세션은 파티션에 남으므로 한 번이면 이후 회차에 모두 적용된다.
+ */
+async function ensureLoggedIn(): Promise<string> {
+  const THREAD = 'runner-login';
+
+  const started = (await app.evaluate(
+    (_api, thread) => globalThis.__helm?.callTool(thread, 'preview_start', {
+      url: 'app://portal-a/list?page=1'
+    }) as never,
+    THREAD
+  )) as { tabId: number };
+
+  const first = (await app.evaluate(
+    (_api, input) =>
+      globalThis.__helm?.callTool(input.thread, 'navigate', {
+        tabId: input.tabId,
+        url: 'app://portal-a/list?page=1'
+      }) as never,
+    { thread: THREAD, tabId: started.tabId }
+  )) as { finalUrl: string };
+
+  if (!first.finalUrl.includes('/login')) return '이미 로그인됨';
+
+  // 로그인 폼은 fixture 가 값을 채워 둔다 — 러너는 사람처럼 버튼만 누른다.
+  const found = (await app.evaluate(
+    (_api, input) =>
+      globalThis.__helm?.callTool(input.thread, 'find', {
+        tabId: input.tabId,
+        query: '로그인',
+        role: 'button'
+      }) as never,
+    { thread: THREAD, tabId: started.tabId }
+  )) as { matches: { ref: string }[] };
+
+  const ref = found.matches[0]?.ref;
+  expect(ref, '로그인 버튼을 찾지 못했습니다').toBeDefined();
+
+  await app.evaluate(
+    (_api, input) =>
+      globalThis.__helm?.callTool(input.thread, 'computer', {
+        tabId: input.tabId,
+        action: 'left_click',
+        ref: input.ref
+      }) as never,
+    { thread: THREAD, tabId: started.tabId, ref: ref ?? '' }
+  );
+
+  const after = (await app.evaluate(
+    (_api, input) =>
+      globalThis.__helm?.callTool(input.thread, 'navigate', {
+        tabId: input.tabId,
+        url: 'app://portal-a/list?page=1'
+      }) as never,
+    { thread: THREAD, tabId: started.tabId }
+  )) as { finalUrl: string };
+
+  expect(after.finalUrl, '로그인 뒤에도 목록으로 가지 못했습니다').toContain('/list');
+
+  // 사람의 탭은 닫아 둔다 — 에이전트는 자기 탭을 따로 연다.
+  await app.evaluate(
+    (_api, input) =>
+      globalThis.__helm?.callTool(input.thread, 'tabs_close', { tabId: input.tabId }) as never,
+    { thread: THREAD, tabId: started.tabId }
+  );
+
+  return '러너가 로그인함';
+}
+
 async function agentInfo(): Promise<{ available: boolean; model: string | null }> {
   return app.evaluate(
     () => globalThis.__helm?.agentInfo() ?? { available: false, model: null, provider: null, macros: 0 }
@@ -191,6 +267,8 @@ test.beforeAll(async () => {
 
   summary['model'] = info.model;
   void watchApprovals();
+
+  summary['login'] = await ensureLoggedIn();
 });
 
 test.afterAll(async () => {

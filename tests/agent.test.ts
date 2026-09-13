@@ -8,7 +8,9 @@ import { ResultsCollector } from '../src/main/agent/Extract';
 import {
   AGENT_DONE,
   AGENT_EXTRACT,
+  looksLikeLoginUrl,
   parseExpectedCount,
+  redirectedToLogin,
   renderToolResult,
   sanitizePageContent,
   wrapPageContent
@@ -19,6 +21,7 @@ import { openDatabase, type HelmDatabase } from '../src/main/persistence/Databas
 import { Inbox } from '../src/main/persistence/Inbox';
 import { NoteStore } from '../src/main/persistence/NoteStore';
 import { ThreadStore } from '../src/main/persistence/ThreadStore';
+import { resolveRelativeUrl } from '../src/main/tools/navigate';
 
 /**
  * 내장 에이전트 단위 테스트 (`npm run test:agent` 의 1층).
@@ -70,6 +73,20 @@ describe('프롬프트 조립', () => {
     ).toBeNull();
     // 날짜 하나를 물었을 때 짧은 답은 정상이다 — 검사가 정상 답을 막으면 안 된다.
     expect(answerShapeProblem('점검 날짜가 언제야?', '2026-03-05')).toBeNull();
+  });
+
+  it('로그인 화면으로 되밀린 것을 주소로 알아본다', () => {
+    expect(looksLikeLoginUrl('app://portal-a/login?next=x')).toBe(true);
+    expect(looksLikeLoginUrl('https://idp.example/sso/')).toBe(true);
+    expect(looksLikeLoginUrl('app://portal-a/list?page=1')).toBe(false);
+
+    // 되밀림만 게이트다 — 처음부터 로그인 페이지로 가라고 시켰을 수 있다.
+    expect(redirectedToLogin('app://portal-a/list?page=1', 'app://portal-a/login?next=x')).toBe(true);
+    expect(redirectedToLogin('app://portal-a/login', 'app://portal-a/login')).toBe(false);
+    expect(redirectedToLogin('app://portal-a/list?page=1', 'app://portal-a/list?page=1')).toBe(false);
+
+    // 화면 글자가 아니라 주소로 본다 — "로그인" 이 든 공지 하나에 오작동하면 안 된다.
+    expect(looksLikeLoginUrl('app://portal-a/notice?id=7')).toBe(false);
   });
 
   it('페이지에서 읽은 결과만 감싼다', () => {
@@ -149,6 +166,19 @@ describe('MacroCache', () => {
     cache.observe(at, { tool: 'navigate', args: { url: 'app://p/1/list?page=1' } });
     cache.observe(at, { tool: 'navigate', args: { url: 'app://p/2/list?page=2' } });
 
+    expect(cache.suggest(at)).toBeNull();
+  });
+
+  it('자기 자신으로 가는 전이는 배우지 않는다 — 되풀이는 규칙이 아니라 막힌 신호다', () => {
+    const cache = new MacroCache();
+    const at = state('read_page');
+    const call = { tool: 'read_page', args: { tabId: 1 } };
+
+    cache.observe(at, call);
+    cache.observe(at, call);
+    cache.observe(at, call);
+
+    // 배웠다면 캐시가 이 반복을 증폭한다(실측: 열 단계를 대신 돌며 0행).
     expect(cache.suggest(at)).toBeNull();
   });
 
@@ -412,6 +442,61 @@ describe('에이전트 루프', () => {
     expect(threads.get('t6')?.status).toBe('paused');
   });
 
+  it('로그인 화면으로 밀려나면 거기서 멈추고 사람을 부른다', async () => {
+    threads.create({ id: 'login1', title: '로그인 게이트' });
+
+    const llm = new ScriptedLLM([call('navigate', { url: 'app://portal-a/list?page=1' })]);
+    const deps = makeDeps(llm, {
+      callTool: async (name, args) => {
+        calls.push({ name, args });
+        if (name === 'navigate') {
+          return {
+            tabId: 1,
+            requestedUrl: args['url'],
+            finalUrl: 'app://portal-a/login?next=app%3A%2F%2Fportal-a%2Flist',
+            redirected: true
+          };
+        }
+        return { ok: true };
+      }
+    });
+
+    const outcome = await new Agent(deps).run({
+      threadId: 'login1',
+      instruction: 'app://portal-a/list?page=1 에서 공지 200건을 모아라'
+    });
+
+    expect(outcome.status).toBe('paused');
+    expect(outcome.reason).toBe('login_required');
+    expect(threads.get('login1')?.status).toBe('waiting_login');
+
+    // 받은편지함에 남고, 사람에게 물었다.
+    const inbox = new Inbox(db).list({ threadId: 'login1' });
+    expect(inbox.some((item) => item.kind === 'login_required')).toBe(true);
+    expect(calls.some((item) => item.name === 'ask_user')).toBe(true);
+
+    // 되밀린 화면에서 표를 뽑지 않는다 — 로그인 화면의 글자는 데이터가 아니다.
+    expect(outcome.rows).toBe(0);
+  });
+
+  it('같은 동작을 계속 반복하면 두 번 묻고 멈춘다', async () => {
+    threads.create({ id: 'rep1', title: '반복', stepLimit: 60 });
+
+    const repeat = { id: 'same', name: 'get_page_text', args: { tabId: 1 } };
+    const llm = new ScriptedLLM(Array.from({ length: 40 }, () => [repeat]));
+
+    const outcome = await new Agent(makeDeps(llm)).run({
+      threadId: 'rep1',
+      instruction: '페이지를 읽어라'
+    });
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toBe('repeat');
+
+    // 사람에게 두 번까지만 묻는다 — 세 번째부터는 괴롭히는 일이다.
+    expect(calls.filter((item) => item.name === 'ask_user')).toHaveLength(2);
+  });
+
   it('스텝 상한을 넘으면 멈춘다', async () => {
     threads.create({ id: 't7', title: '상한', stepLimit: 3 });
 
@@ -541,6 +626,26 @@ describe('에이전트 루프', () => {
     // 그 숫자는 실제 모델로 도는 시나리오 A E2E 에서 재고 docs/eval.md 에 적는다.
   });
 
+  it('탭 번호는 매크로에 남기지 않는다 — 다음 실행의 탭이 다르다', async () => {
+    const macros = new MacroCache();
+
+    threads.create({ id: 'tab1', title: '1회차' });
+    const first = new ScriptedLLM([
+      call('navigate', { url: 'app://portal-a/list?page=1', tabId: 3 }),
+      call('get_page_text', { tabId: 3 }),
+      call('get_page_text', { tabId: 3 }),
+      call(AGENT_DONE, { summary: '끝' })
+    ]);
+    await new Agent(makeDeps(first, { macros })).run({
+      threadId: 'tab1',
+      instruction: '페이지를 읽어라'
+    });
+
+    // 배운 것에 탭 번호가 들어 있으면 다음 실행이 남의 탭을 만진다.
+    const dumped = JSON.stringify([...(macros as unknown as { entries: Map<string, unknown> }).entries]);
+    expect(dumped).not.toContain('tabId');
+  });
+
   it('캐시가 고른 단계도 대화에 assistant 로 남는다 — tool 메시지 짝이 깨지면 안 된다', async () => {
     const macros = new MacroCache();
     const at = {
@@ -568,5 +673,34 @@ describe('에이전트 루프', () => {
     for (const message of toolMessages) {
       expect(callIds, `짝 없는 tool 메시지: ${message.toolCallId}`).toContain(message.toolCallId);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// navigate 의 상대 주소 — 실측으로 잡은 결함
+// ─────────────────────────────────────────────────────────────
+
+describe('상대 주소 풀기', () => {
+  const here = 'app://portal-a/list?page=1';
+
+  it('지금 페이지 기준으로 푼다', () => {
+    // 에이전트가 1페이지를 수집한 뒤 실제로 보낸 값이다. 거절당해 거기서 멈췄다.
+    expect(resolveRelativeUrl('?page=2', here)).toBe('app://portal-a/list?page=2');
+    expect(resolveRelativeUrl('/list?page=3', here)).toBe('app://portal-a/list?page=3');
+    expect(resolveRelativeUrl('./notice?id=5', here)).toBe('app://portal-a/notice?id=5');
+  });
+
+  it('절대 주소는 그대로 둔다', () => {
+    expect(resolveRelativeUrl('https://a.example/c', here)).toBe('https://a.example/c');
+    expect(resolveRelativeUrl('app://portal-b/incidents', here)).toBe('app://portal-b/incidents');
+  });
+
+  it('주소로 볼 수 없는 값은 건드리지 않는다 — 검색어를 받는 자리가 아니다', () => {
+    expect(resolveRelativeUrl('공지사항', here)).toBe('공지사항');
+    expect(resolveRelativeUrl('page=2', here)).toBe('page=2');
+  });
+
+  it('현재 주소를 모르면 원래 값을 돌려준다', () => {
+    expect(resolveRelativeUrl('?page=2', '')).toBe('?page=2');
   });
 });

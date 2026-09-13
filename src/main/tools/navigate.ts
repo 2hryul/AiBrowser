@@ -31,6 +31,31 @@ interface NavigateResult {
   redirected: boolean;
 }
 
+/**
+ * 상대 주소를 지금 보고 있는 페이지 기준으로 푼다.
+ *
+ * 브라우저가 링크를 따라갈 때 늘 하는 일이고, 도구가 안 하면 **`?page=2` 같은 지극히
+ * 자연스러운 이동이 거절된다.** 실측에서 내장 에이전트가 1페이지를 정확히 수집한 뒤
+ * `navigate{url:"?page=2"}` 로 다음 장을 넘기려다 `bad_url` 을 맞고 멈췄다
+ * (artifacts/m4b). 사람이 주소창에 치는 것과 달리 여기 오는 값은 **주소**이므로,
+ * 검색어로 해석하지 않고 현재 문서 기준으로 풀어 주는 것이 맞다.
+ *
+ * 절대 주소는 그대로 둔다. 풀 수 없으면 원래 값을 돌려주고 판단은 아래에 맡긴다.
+ */
+export function resolveRelativeUrl(input: string, currentUrl: string): string {
+  const value = input.trim();
+  if (value === '' || currentUrl === '') return value;
+
+  // 상대 주소로 볼 수 있는 모양만 푼다 — 옴니박스처럼 검색어를 받는 자리가 아니다.
+  if (!/^[?#]|^\.{1,2}\/|^\//.test(value)) return value;
+
+  try {
+    return new URL(value, currentUrl).toString();
+  } catch {
+    return value;
+  }
+}
+
 /** 이동이 끝났다고 볼 때까지 기다린다. */
 async function waitSettled(wc: Electron.WebContents, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -87,7 +112,10 @@ const navigate: Tool<NavigateArgs, NavigateResult> = {
     const tabId = requireTabId(ctx, args.tabId);
     const wc = requireWebContents(ctx, tabId);
 
-    if (!ctx.tabs.navigate(tabId, args.url)) {
+    // `?page=2` 처럼 지금 페이지 기준의 주소를 받는다. 브라우저가 링크에 늘 하는 일이다.
+    const requestedUrl = resolveRelativeUrl(args.url, wc.getURL());
+
+    if (!ctx.tabs.navigate(tabId, requestedUrl)) {
       throw new ToolError('bad_url', `[navigate] 이동할 수 없는 주소입니다: ${args.url}`);
     }
 
@@ -96,11 +124,11 @@ const navigate: Tool<NavigateArgs, NavigateResult> = {
     const finalUrl = wc.getURL();
     return {
       tabId,
-      requestedUrl: args.url,
+      requestedUrl,
       finalUrl,
       title: wc.getTitle(),
       // 쿼리 인코딩 차이는 무시하고 경로가 달라졌을 때만 리다이렉트로 본다.
-      redirected: normalize(finalUrl) !== normalize(args.url)
+      redirected: normalize(finalUrl) !== normalize(requestedUrl)
     };
   }
 };
