@@ -171,6 +171,24 @@ describe('Anthropic 어댑터 — 보내는 모양', () => {
     expect(wire[2]?.content).toHaveLength(2);
   });
 
+  it('생각 깊이는 output_config.effort 로 간다', async () => {
+    reply = { body: OK_TEXT };
+    await anthropicAdapter.chat(
+      { ...config(), effort: 'low' },
+      { purpose: 'test', messages: [{ role: 'user', content: 'x' }] },
+      AbortSignal.timeout(5000)
+    );
+
+    expect(captured?.body['output_config']).toEqual({ effort: 'low' });
+  });
+
+  it('깊이를 안 정하면 output_config 를 보내지 않는다 — 공급자 기본값을 쓴다', async () => {
+    reply = { body: OK_TEXT };
+    await send([{ role: 'user', content: 'x' }]);
+
+    expect(captured?.body['output_config']).toBeUndefined();
+  });
+
   it('구조화 출력은 output_config.format 으로 간다', async () => {
     reply = { body: OK_TEXT };
     await send([{ role: 'user', content: '뽑아라' }], {

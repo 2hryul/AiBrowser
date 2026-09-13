@@ -155,11 +155,18 @@ export const anthropicAdapter: LLMAdapter = {
       }));
     }
 
+    /**
+     * `output_config` 에 두 가지가 들어간다 — 구조화 출력 형식과 생각 깊이.
+     *
+     * 생각 깊이를 여기서 정하는 이유: Opus 5 는 thinking 이 기본이고 출력 상한을 생각과
+     * 나눠 쓴다. 에이전트의 한 걸음에 깊은 추론은 필요 없고, 깊이가 곧 비용이다.
+     */
+    const outputConfig: Record<string, unknown> = {};
     if (request.jsonSchema) {
-      body['output_config'] = {
-        format: { type: 'json_schema', schema: request.jsonSchema.schema }
-      };
+      outputConfig['format'] = { type: 'json_schema', schema: request.jsonSchema.schema };
     }
+    if (config.effort) outputConfig['effort'] = config.effort;
+    if (Object.keys(outputConfig).length > 0) body['output_config'] = outputConfig;
 
     const response = await fetch(config.baseUrl, {
       method: 'POST',

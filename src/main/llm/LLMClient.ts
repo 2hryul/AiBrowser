@@ -44,10 +44,17 @@ interface LLMConfigFile {
   maxPromptTokens?: number;
   maxOutputTokens?: number;
   timeoutMs?: number;
+  effort?: string;
 }
 
 function isProvider(value: unknown): value is LLMProvider {
   return value === 'openai' || value === 'anthropic';
+}
+
+function isEffort(value: unknown): value is NonNullable<LLMConfig['effort']> {
+  return (
+    value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max'
+  );
 }
 
 /**
@@ -69,6 +76,8 @@ function applyEnvOverrides(config: LLMConfig): LLMConfig {
   const model = process.env['HELM_LLM_MODEL'];
   const apiKeyEnv = process.env['HELM_LLM_API_KEY_ENV'];
   const maxOutput = Number(process.env['HELM_LLM_MAX_OUTPUT'] ?? '');
+  const maxPrompt = Number(process.env['HELM_LLM_MAX_PROMPT'] ?? '');
+  const effort = process.env['HELM_LLM_EFFORT'];
 
   const next: LLMConfig = { ...config };
 
@@ -77,6 +86,10 @@ function applyEnvOverrides(config: LLMConfig): LLMConfig {
   if (model) next.model = model;
   if (apiKeyEnv) next.apiKey = process.env[apiKeyEnv] ?? '';
   if (Number.isFinite(maxOutput) && maxOutput > 0) next.maxOutputTokens = maxOutput;
+  // 8k 는 로컬 7B 를 전제로 쓰인 값이다(GOAL-M4). 더 큰 모델로 비교할 때 이 값이 병목인지
+  // 아닌지를 보려면 상한 자체를 움직여 봐야 한다.
+  if (Number.isFinite(maxPrompt) && maxPrompt > 0) next.maxPromptTokens = maxPrompt;
+  if (isEffort(effort)) next.effort = effort;
 
   if (next.provider !== config.provider || next.model !== config.model) {
     console.warn(`[llm] 환경변수 덮어쓰기 - ${next.provider} · ${next.model}`);
@@ -120,7 +133,8 @@ export function loadLLMConfig(configDir: string): LLMConfig | null {
       model: parsed.model,
       maxPromptTokens: parsed.maxPromptTokens ?? DEFAULT_MAX_PROMPT_TOKENS,
       maxOutputTokens: parsed.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-      timeoutMs: parsed.timeoutMs ?? DEFAULT_TIMEOUT_MS
+      timeoutMs: parsed.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      ...(isEffort(parsed.effort) ? { effort: parsed.effort } : {})
     });
   } catch (error) {
     console.error(`[llm] 설정 읽기 실패 - 경로: ${file}`, error);

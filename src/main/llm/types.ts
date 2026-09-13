@@ -26,6 +26,15 @@ export interface LLMConfig {
   maxPromptTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
+  /**
+   * 생각 깊이(Anthropic 계열에만 쓰인다).
+   *
+   * Opus 5 는 thinking 이 기본으로 켜져 있고 **출력 상한을 생각과 나눠 쓴다** —
+   * 실측에서 `max_tokens: 16` 으로 부르자 16토큰이 전부 thinking 으로 가고 답이 비었다.
+   * 에이전트의 한 걸음은 긴 추론이 아니라 "다음에 무엇을 부를까" 이므로 낮게 두는 편이
+   * 싸고 빠르다. 비우면 공급자 기본값을 쓴다.
+   */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
 export interface LLMToolDef {
