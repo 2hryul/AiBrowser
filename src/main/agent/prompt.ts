@@ -111,11 +111,31 @@ export function wrapPageContent(source: string, body: string): string {
   ].join('\n');
 }
 
+/**
+ * 길면 자르되 **앞과 뒤를 함께 남긴다.**
+ *
+ * 앞만 남기면 안 되는 이유가 실측에 있다. 목록 화면에서 페이지 번호(`1 2 3 … 10`)는
+ * 표 **뒤에** 온다. 앞 800자만 넣었더니 모델 눈에 페이저가 아예 보이지 않았고,
+ * "다음 장으로 가라" 고 아무리 일러도 갈 수가 없었다 — 우리가 지도를 접어서 준 것이다
+ * (artifacts/m4b, 시나리오 A).
+ *
+ * 문서의 끝에는 이동 수단이 모여 있다 — 페이저·"다음"·총 건수. 그래서 꼬리를 남긴다.
+ */
+export function clipBothEnds(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+
+  // 뒤쪽에 이동 단서가 모여 있으므로 넉넉히 남긴다. 앞은 무엇을 보고 있는지 알 만큼.
+  const tail = Math.min(Math.floor(maxChars * 0.4), text.length);
+  const head = maxChars - tail;
+  const omitted = text.length - maxChars;
+
+  return `${text.slice(0, head)}\n…(가운데 ${omitted}자 줄임)…\n${text.slice(text.length - tail)}`;
+}
+
 /** 도구 결과를 프롬프트에 넣을 문자열로 만든다. 길면 자른다 — 한 단계가 예산을 다 먹으면 안 된다. */
 export function renderToolResult(toolName: string, result: unknown, maxChars = 4000): string {
   const text = typeof result === 'string' ? result : JSON.stringify(result);
-  const clipped =
-    text.length > maxChars ? `${text.slice(0, maxChars)}\n…(${text.length - maxChars}자 줄임)` : text;
+  const clipped = clipBothEnds(text, maxChars);
 
   return isPageRead(toolName) ? wrapPageContent(toolName, clipped) : clipped;
 }

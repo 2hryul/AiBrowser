@@ -50,8 +50,17 @@ export const AGENT_TOOL_NAMES = [
   'tabs_close',
   'tabs_context',
   'download',
-  'ask_user',
-  'note_read'
+  'ask_user'
+  /**
+   * `note_read` 는 빼 두었다.
+   *
+   * 중복이기 때문이다 — 사이트 메모는 시작할 때와 호스트가 바뀔 때 루프가 이미 프롬프트에
+   * 넣어 준다(`gatherHints`). 도구로 또 주면 능력이 늘지 않으면서 **고르기 쉬운 헛수**가
+   * 하나 늘 뿐이다. 실측에서 "이 기사를 요약해줘" 에 모델이 `note_read` 를 부르고
+   * "이 페이지에 대한 노트가 없습니다" 를 요약이라고 내놓았다(artifacts/m4b).
+   *
+   * MCP 클라이언트에는 그대로 노출된다 — 밖에서는 메모를 직접 읽을 이유가 있다.
+   */
 ] as const;
 
 /**
@@ -186,6 +195,19 @@ export interface AgentOutcome {
 interface StepRecord {
   tool: string;
   argsKey: string;
+}
+
+/**
+ * 사이트 메모를 어느 호스트에 제안할 것인가.
+ *
+ * **실제로 일한 곳**이 먼저다. 처음에는 북마크에서 찾은 호스트만 썼는데, 북마크가 없으면
+ * 제안이 아예 안 나갔다 — 한 화면을 성공적으로 수집하고도 "이 사이트에서 이렇게 하면
+ * 된다" 를 남길 자리가 없었다(artifacts/m4b, noteProposal: 없음).
+ */
+function workedHost(lastUrl: string, hintedHost: string | null): string | null {
+  const visited = lastUrl === '' ? null : routeOf(lastUrl).host;
+  if (visited && visited !== '(unknown)') return visited;
+  return hintedHost;
 }
 
 /**
@@ -424,7 +446,7 @@ export class Agent {
 
           summary = assistantText.trim();
           this.deps.threads.append(threadId, { role: 'ai', text: summary });
-          return await this.finish(threadId, steps, llmCalls, macroHits, collector, summary, hints.host);
+          return await this.finish(threadId, steps, llmCalls, macroHits, collector, summary, workedHost(lastUrl, hints.host));
         }
       }
 
@@ -519,7 +541,7 @@ export class Agent {
             return this.failure(steps, llmCalls, macroHits, collector, shortfall, 'incomplete');
           }
 
-          return await this.finish(threadId, steps, llmCalls, macroHits, collector, summary, hints.host);
+          return await this.finish(threadId, steps, llmCalls, macroHits, collector, summary, workedHost(lastUrl, hints.host));
         }
 
         if (call.name === AGENT_EXTRACT) {

@@ -8,6 +8,7 @@ import { ResultsCollector } from '../src/main/agent/Extract';
 import {
   AGENT_DONE,
   AGENT_EXTRACT,
+  clipBothEnds,
   looksLikeLoginUrl,
   parseExpectedCount,
   redirectedToLogin,
@@ -98,6 +99,20 @@ describe('프롬프트 조립', () => {
     const rendered = renderToolResult('get_page_text', '가'.repeat(9000), 500);
     expect(rendered.length).toBeLessThan(1200);
     expect(rendered).toContain('자 줄임');
+  });
+
+  it('자를 때 **꼬리를 남긴다** — 페이지 번호는 표 뒤에 있다', () => {
+    // 실측으로 잡은 것: 앞만 남겼더니 모델 눈에 페이저가 안 보여 다음 장으로 갈 수 없었다.
+    const page = ['공지사항 (1/10)', '표'.repeat(3000), '1 2 3 4 5 6 7 8 9 10'].join('\n');
+    const clipped = clipBothEnds(page, 800);
+
+    expect(clipped.length).toBeLessThan(900);
+    expect(clipped, '머리(무엇을 보고 있는가)가 없다').toContain('공지사항 (1/10)');
+    expect(clipped, '꼬리(어디로 갈 수 있는가)가 없다').toContain('1 2 3 4 5 6 7 8 9 10');
+  });
+
+  it('짧으면 그대로 둔다', () => {
+    expect(clipBothEnds('짧은 본문', 800)).toBe('짧은 본문');
   });
 });
 
