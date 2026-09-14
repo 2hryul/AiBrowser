@@ -1,16 +1,18 @@
 {
-  "model": "claude-opus-5",
+  "model": "qwen2.5:7b-instruct",
   "login": "러너가 로그인함",
   "scenarioA_round1": {
-    "status": "failed",
-    "steps": 29,
-    "llmCalls": 30,
-    "macroHits": 8,
-    "rows": 180,
-    "uniqueIds": 180,
-    "duplicates": 0,
+    "status": "handoff",
+    "steps": 15,
+    "llmCalls": 18,
+    "macroHits": 4,
+    "rows": 80,
+    "uniqueIds": 80,
+    "duplicates": 60,
     "badDates": 0,
-    "reason": "http_error",
+    "screens": 10,
+    "notice": 1,
+    "reason": "needs_workflow",
     "sample": [
       {
         "id": "1",
@@ -25,7 +27,123 @@
     ]
   },
   "approvals": [
-    "site:portal-a@portal-a"
+    "site:portal-a@portal-a",
+    "site:portal-b@portal-b"
   ],
-  "prompts": []
+  "prompts": [
+    "ask_user:계속",
+    "ask_user:계속",
+    "ask_user:계속",
+    "ask_user:계속"
+  ],
+  "scenarioA_round2": {
+    "status": "handoff",
+    "steps": 25,
+    "llmCalls": 20,
+    "macroHits": 12,
+    "rows": 60,
+    "uniqueIds": 60,
+    "duplicates": 90,
+    "badDates": 0,
+    "screens": 10,
+    "notice": 1,
+    "reason": "needs_workflow",
+    "sample": [
+      {
+        "id": "1",
+        "title": "사내 공지 001 — 인사팀 안내",
+        "postedAt": "2026-01-01"
+      },
+      {
+        "id": "2",
+        "title": "사내 공지 002 — 총무팀 안내",
+        "postedAt": "2026-01-02"
+      }
+    ]
+  },
+  "scenarioA_round3": {
+    "status": "handoff",
+    "steps": 24,
+    "llmCalls": 21,
+    "macroHits": 8,
+    "rows": 60,
+    "uniqueIds": 60,
+    "duplicates": 40,
+    "badDates": 0,
+    "screens": 10,
+    "notice": 1,
+    "reason": "needs_workflow",
+    "sample": [
+      {
+        "id": "1",
+        "title": "사내 공지 001 — 인사팀 안내",
+        "postedAt": "2026-01-01"
+      },
+      {
+        "id": "2",
+        "title": "사내 공지 002 — 총무팀 안내",
+        "postedAt": "2026-01-02"
+      }
+    ]
+  },
+  "scenarioA": {
+    "passed": 3,
+    "of": 3,
+    "llmCallsByRound": [
+      18,
+      20,
+      21
+    ],
+    "macroHitsByRound": [
+      4,
+      12,
+      8
+    ]
+  },
+  "scenarioA_macro": {
+    "llmCallsByRound": [
+      18,
+      20,
+      21
+    ],
+    "macroHitsByRound": [
+      4,
+      12,
+      8
+    ]
+  },
+  "scenarioB_round1": {
+    "status": "failed",
+    "steps": 12,
+    "llmCalls": 14,
+    "rows": 9,
+    "uniqueIds": 9,
+    "network": 4,
+    "domReads": 1,
+    "reason": "incomplete"
+  },
+  "scenarioB_round2": {
+    "status": "failed",
+    "steps": 21,
+    "llmCalls": 23,
+    "rows": 9,
+    "uniqueIds": 9,
+    "network": 5,
+    "domReads": 7,
+    "reason": "no_progress"
+  },
+  "scenarioB_round3": {
+    "status": "failed",
+    "steps": 7,
+    "llmCalls": 7,
+    "rows": 0,
+    "uniqueIds": 0,
+    "network": 1,
+    "domReads": 0,
+    "reason": "incomplete"
+  },
+  "scenarioB": {
+    "passed": 0,
+    "of": 3
+  }
 }
