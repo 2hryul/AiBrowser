@@ -127,8 +127,17 @@ export interface AgentStatusView {
   running: string[];
 }
 
+export interface AgentHandoffView {
+  screenYield: number;
+  target: number;
+  collected: number;
+  screensNeeded: number;
+  message: string;
+}
+
 export interface AgentOutcomeView {
-  status: 'done' | 'failed' | 'paused' | 'stopped';
+  /** `handoff` = 한 화면 몫은 했고 나머지는 워크플로우가 맞다는 보고(성공 아님) */
+  status: 'done' | 'failed' | 'paused' | 'handoff' | 'stopped';
   steps: number;
   llmCalls: number;
   macroHits: number;

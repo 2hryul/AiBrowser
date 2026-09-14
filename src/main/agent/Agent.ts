@@ -104,6 +104,23 @@ const MAX_MACRO_STREAK = 4;
 const MAX_ANSWER_REJECTIONS = 2;
 /** 진전 없이 흘려보낼 수 있는 단계 수. 넘으면 멈춘다 — 2,000스텝을 헛돌게 두지 않는다. */
 const MAX_IDLE_STEPS = 12;
+
+/**
+ * 한 화면에서 이만큼은 뽑았어야 "경계" 로 인정한다.
+ *
+ * 이 하한이 없으면 **추출 실패를 경계로 위장**하게 된다 — 화면에 20행이 있는데 1행만 뽑고
+ * "여러 화면 일이라 못 했다" 고 보고하는 길이 열린다. 그건 실패지 경계가 아니다.
+ * 5는 보수적으로 잡은 값이다(실측에서 성공한 화면은 20~21행을 뽑았다).
+ */
+const MIN_SCREEN_YIELD = 5;
+
+/**
+ * 경계로 인정하려면 이만큼의 서로 다른 화면을 돌아 봤어야 한다.
+ *
+ * 둘이면 충분하다 — "한 화면에서 다음 화면으로 넘어가는 것은 되더라" 를 보인 것이고,
+ * 거기서 막힌 것이 규모 문제라는 뜻이다. 한 화면에 머문 실행은 순회를 시도한 적이 없다.
+ */
+const MIN_SCREENS_VISITED = 2;
 /**
  * 구조화 추출에 넘기는 본문 상한.
  *
@@ -111,7 +128,14 @@ const MAX_IDLE_STEPS = 12;
  * 한다.** 처음에 16,000자로 잡았다가 한글 본문이 거의 글자당 1토큰이라 그 한 메시지가 혼자
  * 예산을 넘겨 `prompt_too_large` 로 죽었다(artifacts/m4b). 20행짜리 목록은 2,500자 안팎이다.
  */
-const MAX_EXTRACT_CHARS = 6_000;
+/**
+ * 추출기에 넘길 본문 길이 상한.
+ *
+ * 예전에는 6,000자였고 여기서 그냥 잘랐다 — 50건짜리 XHR 응답(약 10KB)이 9행으로 줄어드는
+ * 원인이었다(2026-09-14 실측). 이제 `Extract` 가 4,000자씩 겹쳐 나눠 뽑으므로(최대 6조각)
+ * 그 소화량에 맞춰 올린다. 여전히 상한은 둔다 — 화면 하나가 무한정 커질 수는 없다.
+ */
+const MAX_EXTRACT_CHARS = 24_000;
 /**
  * 표를 루프가 뽑을 때 대화에 넣는 본문 길이.
  *
@@ -178,7 +202,27 @@ export interface RunOptions {
   signal?: AbortSignal;
 }
 
-export type AgentStatus = 'done' | 'failed' | 'paused' | 'stopped';
+export type AgentStatus = 'done' | 'failed' | 'paused' | 'handoff' | 'stopped';
+
+/**
+ * 경계에서 넘길 때 사람에게 건네는 제안.
+ *
+ * `handoff` 는 성공이 아니다. "여기까지는 했고, 나머지는 다른 수단이 맞다" 는 보고다.
+ * 숫자를 함께 넘기는 이유는 사람이 그 판단을 검산할 수 있어야 하기 때문이다 —
+ * 한 화면에서 몇 행을 뽑았고 목표가 얼마였는지가 곧 "여러 화면 일" 이라는 근거다.
+ */
+export interface HandoffProposal {
+  /** 이 화면에서 뽑은 행 수 — 한 화면 몫을 해냈다는 증거 */
+  screenYield: number;
+  /** 지시문이 요구한 총량 */
+  target: number;
+  /** 지금까지 모은 행 수 */
+  collected: number;
+  /** 대략 몇 화면이 필요한가 — 사람이 승격 여부를 가늠하는 값 */
+  screensNeeded: number;
+  /** 사람이 읽을 한 줄 */
+  message: string;
+}
 
 export interface AgentOutcome {
   status: AgentStatus;
@@ -190,6 +234,8 @@ export interface AgentOutcome {
   duplicates: number;
   summary: string;
   reason: string | null;
+  /** `status: 'handoff'` 일 때만 채워진다 */
+  handoff?: HandoffProposal;
 }
 
 interface StepRecord {
@@ -204,6 +250,42 @@ interface StepRecord {
  * 제안이 아예 안 나갔다 — 한 화면을 성공적으로 수집하고도 "이 사이트에서 이렇게 하면
  * 된다" 를 남길 자리가 없었다(artifacts/m4b, noteProposal: 없음).
  */
+/**
+ * 도청 결과에서 **응답 본문만** 뽑아 잇는다.
+ *
+ * 실측(2026-09-14, 시나리오 B): 50건짜리 XHR 화면에서 9~13행만 뽑혔다. 원인은 모델이 아니라
+ * 우리가 넘긴 본문이었다 — `JSON.stringify(result)` 는 봉투를 통째로 담는다(요청 주소 ·
+ * 메서드 · 상태 · mimeType · 바이트 수 · 도청 상한 …). 그 메타데이터가 6,000자 상한을 먼저
+ * 먹고, 정작 `body` 는 **이스케이프된 문자열**로 들어가 중간에서 잘린다. 잘린 JSON 문자열은
+ * 모델이 읽다 말기 딱 좋다.
+ *
+ * 그래서 봉투를 벗기고 본문만 넘긴다. 같은 본문이 두 번 잡히면(재요청) 한 번만 쓴다 —
+ * 중복은 상한만 먹고 새 행을 주지 않는다.
+ */
+function networkBodies(result: unknown): string | null {
+  if (typeof result !== 'object' || result === null) return null;
+
+  const requests = (result as { requests?: unknown }).requests;
+  if (!Array.isArray(requests)) return null;
+
+  const seen = new Set<string>();
+  const bodies: string[] = [];
+
+  for (const entry of requests) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const body = (entry as { body?: unknown }).body;
+    if (typeof body !== 'string' || body.trim() === '') continue;
+    if (seen.has(body)) continue;
+
+    seen.add(body);
+    bodies.push(body);
+  }
+
+  // 본문이 하나도 없으면 표의 출처가 아니다. 빈 문자열 대신 null 을 돌려 추출을 건너뛴다 —
+  // "응답이 없었다" 와 "표가 비었다" 는 다르다.
+  return bodies.length === 0 ? null : bodies.join('\n');
+}
+
 function workedHost(lastUrl: string, hintedHost: string | null): string | null {
   const visited = lastUrl === '' ? null : routeOf(lastUrl).host;
   if (visited && visited !== '(unknown)') return visited;
@@ -277,6 +359,27 @@ export class Agent {
     let lastPageSource = '';
     /** 이미 표를 뽑은 본문. 같은 화면을 두 번 뽑으면 호출만 늘고 결과는 전부 중복이다. */
     let extractedFrom = '';
+    /**
+     * 한 화면에서 뽑아낸 행 수의 **최대치**.
+     *
+     * 멈출 때 "한 화면 몫은 할 수 있는가" 를 이 값으로 판단한다(경계 판정).
+     * 누적이 아니라 화면 하나의 수확이어야 한다 — 누적으로 보면 열 화면을 헤매며 한 행씩
+     * 주운 것과 한 화면을 온전히 뽑은 것이 구별되지 않는다.
+     *
+     * **마지막 수확이 아니라 최대 수확**인 이유는 실측에 있다(2026-09-14, 시나리오 A 2회차):
+     * 네 화면을 돌며 60행을 모은 실행이 마지막에 **이미 뽑은 화면을 다시 읽어** 새 행이 0이
+     * 되었고, 그 0 때문에 경계 판정이 거부돼 `failed` 로 끝났다. 재방문은 "화면을 못 뽑는다"
+     * 가 아니라 "이미 뽑았다" 는 뜻이다. 질문이 "할 수 있는가" 이므로 답은 최대치다.
+     */
+    let bestScreenYield = 0;
+    /**
+     * 서로 다른 화면을 몇 개나 돌았는가.
+     *
+     * 경계 판정의 핵심 신호다. "여러 화면 순회를 시도했는데 규모에서 막혔다"(경계)와
+     * "한 자리에서 한 화면 몫도 못 했다"(실패)를 이 값이 가른다 — 실측에서 시나리오 B 가
+     * 한 화면에서 13행만 뽑고도 수확 기준을 통과해 경계로 위장될 뻔했다(2026-09-14).
+     */
+    const screensVisited = new Set<string>();
     let summary = '';
 
     /**
@@ -372,15 +475,28 @@ export class Agent {
           });
         } catch (error) {
           const reason = error instanceof LLMError ? error.code : 'llm_error';
-          this.deps.threads.setStatus(threadId, 'failed', reason);
-          return this.failure(
+
+          /**
+           * 예산에 걸려 죽는 것도 경계일 수 있다.
+           *
+           * 실측(2026-09-14): 시나리오 A 세 회차가 전부 `prompt_too_large` 로 끝났다.
+           * 네 화면을 돌며 80~90행을 모은 뒤 **누적 대화가 8k 예산을 넘긴 것**이고,
+           * 같은 벽에 `claude-opus-5` 도 부딪혔다(`docs/eval.md` 2026-09-13).
+           * 모델이 못 한 것이 아니라 여러 화면을 도는 일이 이 예산에 안 맞는 것이므로,
+           * 아래 경계 조건을 만족하면 실패가 아니라 넘김으로 끝낸다.
+           */
+          return await this.handoffOrFailure(threadId, {
             steps,
             llmCalls,
             macroHits,
             collector,
-            `모델 호출 실패 - ${String(error)}`,
-            reason
-          );
+            summary: `모델 호출 실패 - ${String(error)}`,
+            reason,
+            expected,
+            bestScreenYield,
+            screensVisited: screensVisited.size,
+            host: workedHost(lastUrl, hints.host)
+          });
         }
 
         llmCalls += 1;
@@ -406,8 +522,18 @@ export class Agent {
 
             // 되물어도 계속 말만 하면 실패다. `agent_done` 경로와 판정이 같아야 한다 —
             // 한쪽만 성공으로 빠지면 "모델이 도구를 그만 부르면 통과" 라는 구멍이 생긴다.
-            this.deps.threads.setStatus(threadId, 'failed', 'incomplete');
-            return this.failure(steps, llmCalls, macroHits, collector, shortfall, 'incomplete');
+            return await this.handoffOrFailure(threadId, {
+              steps,
+              llmCalls,
+              macroHits,
+              collector,
+              summary: shortfall,
+              reason: 'incomplete',
+              expected,
+              bestScreenYield,
+              screensVisited: screensVisited.size,
+              host: workedHost(lastUrl, hints.host)
+            });
           }
 
           /**
@@ -537,8 +663,18 @@ export class Agent {
           }
 
           if (shortfall) {
-            this.deps.threads.setStatus(threadId, 'failed', 'incomplete');
-            return this.failure(steps, llmCalls, macroHits, collector, shortfall, 'incomplete');
+            return await this.handoffOrFailure(threadId, {
+              steps,
+              llmCalls,
+              macroHits,
+              collector,
+              summary: shortfall,
+              reason: 'incomplete',
+              expected,
+              bestScreenYield,
+              screensVisited: screensVisited.size,
+              host: workedHost(lastUrl, hints.host)
+            });
           }
 
           return await this.finish(threadId, steps, llmCalls, macroHits, collector, summary, workedHost(lastUrl, hints.host));
@@ -581,6 +717,8 @@ export class Agent {
           }
 
           const added = collector.add(harvested);
+          // 모델이 스스로 기록한 것도 "이 화면의 수확" 이다 — 경계 판정이 같은 값을 본다.
+          bestScreenYield = Math.max(bestScreenYield, added);
           this.deps.setResults(threadId, collector.all());
 
           this.deps.threads.append(threadId, {
@@ -746,6 +884,7 @@ export class Agent {
               llmCalls += 1;
 
               const added = collector.add(extracted.rows);
+              bestScreenYield = Math.max(bestScreenYield, added);
               if (added > 0) {
                 this.deps.setResults(threadId, collector.all());
                 this.deps.threads.append(threadId, {
@@ -771,6 +910,7 @@ export class Agent {
         const url = this.urlOf(result, call);
         if (url) {
           lastUrl = url;
+          screensVisited.add(url);
           const { host } = routeOf(url);
           if (host && !seenHosts.has(host)) {
             seenHosts.add(host);
@@ -792,15 +932,18 @@ export class Agent {
       else idleSteps += 1;
 
       if (idleSteps >= MAX_IDLE_STEPS) {
-        this.deps.threads.setStatus(threadId, 'failed', 'no_progress');
-        return this.failure(
+        return await this.handoffOrFailure(threadId, {
           steps,
           llmCalls,
           macroHits,
           collector,
-          `${MAX_IDLE_STEPS}단계 동안 새로 모은 것도 옮긴 화면도 없다`,
-          'no_progress'
-        );
+          summary: `${MAX_IDLE_STEPS}단계 동안 새로 모은 것도 옮긴 화면도 없다`,
+          reason: 'no_progress',
+          expected,
+          bestScreenYield,
+          screensVisited: screensVisited.size,
+          host: workedHost(lastUrl, hints.host)
+        });
       }
 
       if (steps % CHECKPOINT_EVERY === 0) {
@@ -942,7 +1085,8 @@ export class Agent {
     }
 
     // XHR 응답도 표의 출처다 — JSON 그대로가 오히려 정확하다.
-    if (toolName === 'read_network_requests') return JSON.stringify(result);
+    // 단 **봉투가 아니라 본문**이다(아래 networkBodies 주석).
+    if (toolName === 'read_network_requests') return networkBodies(result);
 
     /**
      * `read_page`(접근성 트리)는 **표의 출처로 쓰지 않는다.**
@@ -954,15 +1098,32 @@ export class Agent {
     return null;
   }
 
-  /** 도구 결과에서 현재 URL 을 읽는다. navigate 계열은 인자에도 들어 있다. */
+  /**
+   * 도구 결과에서 **지금 어느 주소에 있는가** 를 읽는다.
+   *
+   * `finalUrl` 을 먼저 본다. `navigate` 는 리다이렉트까지 따라간 주소를 거기 담아 주고,
+   * 결과에 `url` 은 없다(M2 계약). 이 순서가 중요한 이유는 **상대 주소** 때문이다 —
+   * 도구가 `?page=2` 를 받아 주기 시작한 뒤(2026-09-13), 인자를 그대로 현재 주소로 삼으면
+   * `lastUrl` 이 `?page=2` 가 되고 `routeOf` 가 host 를 잃는다. 그 host 는 매크로 키 ·
+   * 사이트 메모 조회 · 메모 제안이 전부 쓴다. 화면은 제대로 옮겨 갔는데 에이전트만
+   * 자기가 어디 있는지 모르게 되는 자리다.
+   *
+   * 인자는 마지막 수단이고, **절대 주소일 때만** 쓴다.
+   */
   private urlOf(result: unknown, call: LLMToolCall): string | null {
     if (typeof result === 'object' && result !== null) {
-      const url = (result as { url?: unknown }).url;
-      if (typeof url === 'string' && url !== '') return url;
+      const record = result as { finalUrl?: unknown; url?: unknown };
+
+      if (typeof record.finalUrl === 'string' && record.finalUrl !== '') return record.finalUrl;
+      if (typeof record.url === 'string' && record.url !== '') return record.url;
     }
 
     const argUrl = call.args['url'];
-    return typeof argUrl === 'string' && argUrl !== '' ? argUrl : null;
+    if (typeof argUrl !== 'string' || argUrl === '') return null;
+
+    // 상대 주소를 현재 주소로 삼지 않는다. 그대로 두면 앞 단계의 주소가 유지되는데,
+    // 그 편이 host 없는 조각보다 언제나 낫다.
+    return /^[a-z][a-z0-9+.-]*:/i.test(argUrl) ? argUrl : null;
   }
 
   /** 스레드에 남기는 결과 요약 — 본문 전체를 스레드에 쌓으면 DB 가 페이지 본문으로 찬다. */
@@ -1030,6 +1191,100 @@ export class Agent {
       duplicates: collector.duplicateCount,
       summary: title,
       reason: null
+    };
+  }
+
+  /**
+   * 멈춤이 "실패" 인가 "경계" 인가를 가른다.
+   *
+   * 2026-09-14 사람 결정(선택지 2 — 범위를 나눈다)의 구현이다. 7B 로는 여러 화면 순회가
+   * 안 된다는 것이 실측으로 확정됐고(`docs/eval.md` 2026-09-13), 그 일은 M5 워크플로우가
+   * 결정적으로 한다. 그래서 에이전트는 **자기 경계를 알고 넘긴다.**
+   *
+   * 경계로 인정하는 조건 셋 — 하나라도 어긋나면 그냥 실패다:
+   *
+   *   1. 목표에 못 미친다(미달이 아니면 애초에 이 자리에 오지 않는다)
+   *   2. **한 화면에서 `MIN_SCREEN_YIELD` 행 이상 뽑아낸 적이 있다** — 한 화면 몫은 해냈다는
+   *      증거. 이게 없으면 추출 실패를 경계로 위장하게 된다
+   *   3. 목표가 한 화면 수확의 **2배 이상**이다 — 한 화면으로는 구조적으로 도달할 수 없다.
+   *      목표가 한 화면 안에 있는데 못 채운 것은 경계가 아니라 실패다
+   *   4. **서로 다른 화면을 둘 이상 돌았다** — 순회를 실제로 해 보고 규모에서 막힌 것이어야
+   *      한다. 이 조건이 없으면 한 자리에서 한 화면 몫도 못 한 실행이 경계로 위장된다
+   *      (실측 2026-09-14: 시나리오 B 가 50건 화면에서 13행만 뽑고 1·2·3 을 통과했다)
+   *
+   * 기준을 낮추는 장치가 아니다. 오히려 "한 화면은 온전히 해냈는가" 를 새로 요구한다.
+   */
+  private async handoffOrFailure(
+    threadId: string,
+    input: {
+      steps: number;
+      llmCalls: number;
+      macroHits: number;
+      collector: ResultsCollector;
+      summary: string;
+      reason: string;
+      expected: number | null;
+      bestScreenYield: number;
+      /** 서로 다른 주소를 몇 개 돌았는가 */
+      screensVisited: number;
+      host: string | null;
+    }
+  ): Promise<AgentOutcome> {
+    const { steps, llmCalls, macroHits, collector, expected, bestScreenYield } = input;
+
+    const boundary =
+      expected !== null &&
+      collector.size < expected &&
+      bestScreenYield >= MIN_SCREEN_YIELD &&
+      expected >= bestScreenYield * 2 &&
+      input.screensVisited >= MIN_SCREENS_VISITED;
+
+    if (!boundary) {
+      this.deps.threads.setStatus(threadId, 'failed', input.reason);
+      return this.failure(steps, llmCalls, macroHits, collector, input.summary, input.reason);
+    }
+
+    const target = expected;
+    const screensNeeded = Math.ceil(target / bestScreenYield);
+    const message =
+      `한 화면에서 ${bestScreenYield}행을 뽑았고 누적 ${collector.size}행이다. ` +
+      `목표 ${target}행은 약 ${screensNeeded}개 화면을 돌아야 한다 — ` +
+      '여러 화면 순회는 워크플로우로 승격해 결정적으로 돌리는 편이 맞다.';
+
+    // 모은 것은 버리지 않는다. 부분 결과도 결과다.
+    this.deps.setResults(threadId, collector.all());
+
+    // 스레드는 `done` 이다 — 에이전트는 자기 몫을 끝냈다. 왜 목표에 못 미쳤는지는
+    // closedReason 과 받은편지함이 말한다. 실패로 적으면 "고장" 으로 읽힌다.
+    this.deps.threads.setStatus(threadId, 'done', 'needs_workflow');
+
+    this.deps.inbox.post({
+      kind: 'result',
+      threadId,
+      title: `${collector.size}/${target}행 — 나머지는 워크플로우로`,
+      // 과장하지 않는다 — 승격은 **초안**까지다. 이 포털용 어댑터가 없으면 초안의
+      // 수집 단계가 비고, 승격 화면이 "어댑터를 직접 적어야 한다" 고 말한다(M5 Promote).
+      summary: `${message} 사이드바 작업 화면의 "워크플로우로 승격" 으로 초안을 만들 수 있습니다.`
+    });
+
+    if (input.host && this.deps.proposeSiteNote) {
+      this.deps.proposeSiteNote({
+        threadId,
+        host: input.host,
+        text: `한 화면에서 ${bestScreenYield}행을 뽑을 수 있다. 여러 화면 순회는 워크플로우로 승격해 돌린다.`
+      });
+    }
+
+    return {
+      status: 'handoff',
+      steps,
+      llmCalls,
+      macroHits,
+      rows: collector.size,
+      duplicates: collector.duplicateCount,
+      summary: message,
+      reason: 'needs_workflow',
+      handoff: { screenYield: bestScreenYield, target, collected: collector.size, screensNeeded, message }
     };
   }
 

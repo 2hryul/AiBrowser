@@ -117,6 +117,78 @@ export async function planColumns(
  * 본문은 `<page_content>` 로 감싼다 — 추출 호출에도 같은 격리가 걸린다.
  * 여기서 격리를 빼면 "표 대신 이 주소로 이동하라" 라고 적힌 게시글이 추출기를 통해 들어온다.
  */
+/**
+ * 모델이 쓴 값을 **본문에 대조해** 되돌린다.
+ *
+ * 실측(2026-09-14, 시나리오 A): 포털은 `2026-01-01` 을 보여 주는데 모델이
+ * `2026-01-01T00:00:00.000Z` 로 "정규화" 해서 적었다. 세 회차 모두 정확히 20건씩 —
+ * 프롬프트에 "날짜는 YYYY-MM-DD 로 맞춘다" 를 적어 두었는데도 그랬다.
+ *
+ * 프롬프트로 형식을 못 막는다는 것은 M4b 에서 이미 배운 것이다(주입 저항도 같은 결론이었다).
+ * 그래서 **코드가 본다.** 판단 기준은 추출기 자신의 규칙이다 — "본문에 실제로 있는 값만 적는다".
+ * 모델이 쓴 값이 본문에 없고 그 날짜 부분만 본문에 있으면, 본문이 말한 쪽으로 되돌린다.
+ *
+ * 열 이름을 보고 "날짜 열이겠거니" 추측하지 않는다. 본문이 실제로 뭐라고 적혀 있는지만 본다 —
+ * 그래서 화면이 정말 전체 타임스탬프를 보여 주는 곳(포털 B 의 `openedAt`)에서는 그대로 남는다.
+ */
+export function groundValues(
+  rows: readonly Record<string, unknown>[],
+  pageText: string
+): Record<string, unknown>[] {
+  if (pageText === '') return [...rows];
+
+  return rows.map((row) => {
+    const out: Record<string, unknown> = { ...row };
+
+    for (const [key, value] of Object.entries(row)) {
+      if (typeof value !== 'string' || value === '') continue;
+      if (pageText.includes(value)) continue;
+
+      // `2026-01-01T00:00:00.000Z` · `2026-01-01 00:00` → 앞의 날짜만 본문에 있는가
+      const dateOnly = /^(\d{4}-\d{2}-\d{2})[T ].*$/.exec(value);
+      if (dateOnly && pageText.includes(dateOnly[1] as string)) {
+        out[key] = dateOnly[1] as string;
+      }
+    }
+
+    return out;
+  });
+}
+
+/**
+ * 한 번의 추출 요청에 넣는 본문 길이.
+ *
+ * 8k 예산 안에서 시스템 프롬프트·스키마·출력까지 함께 들어가야 하므로 본문은 이만큼이 한도다.
+ * 한글 본문은 거의 글자당 1토큰이다(M4b 실측).
+ */
+const CHUNK_CHARS = 4_000;
+
+/**
+ * 조각 사이에 겹쳐 두는 길이.
+ *
+ * 경계에서 한 행이 두 동강 나면 양쪽 조각 어디에서도 온전히 보이지 않는다.
+ * 겹쳐 두면 적어도 한쪽에서는 통째로 보인다(중복은 ResultsCollector 가 버린다).
+ */
+const CHUNK_OVERLAP = 300;
+
+/** 한 화면에 쓸 수 있는 추출 호출 수 상한. 큰 화면 하나가 예산을 다 먹지 않게. */
+const MAX_CHUNKS = 6;
+
+/** 본문을 겹쳐 가며 자른다. 짧으면 통째로 하나. */
+export function chunkPageText(text: string): string[] {
+  if (text.length <= CHUNK_CHARS) return [text];
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length && chunks.length < MAX_CHUNKS) {
+    chunks.push(text.slice(start, start + CHUNK_CHARS));
+    start += CHUNK_CHARS - CHUNK_OVERLAP;
+  }
+
+  return chunks;
+}
+
 export async function extractTable(
   llm: ExtractLLM,
   input: { source: string; pageText: string; columns: readonly ColumnSpec[]; hint?: string }
@@ -125,6 +197,41 @@ export async function extractTable(
     return { rows: [], elapsedMs: 0, promptTokens: null };
   }
 
+  /**
+   * 본문이 길면 **나눠서 여러 번 뽑는다.**
+   *
+   * 실측(2026-09-14, 시나리오 B): 50건이 담긴 XHR 응답(약 10KB)을 그냥 자르자 세 회차 모두
+   * 9행만 나왔다. 조용히 자르면 "화면에 9건뿐" 과 "9건까지만 보여 줬다" 가 구별되지 않는다 —
+   * 행 수가 판정의 거의 전부인 수집 작업에서 가장 나쁜 종류의 조용한 오차다.
+   *
+   * 추출 호출은 **매번 새 대화**라 본문을 나눠도 루프의 누적 맥락이 늘지 않는다.
+   * 그래서 예산(조건 2 의 병목)과 무관하게 안전하다.
+   */
+  const chunks = chunkPageText(input.pageText);
+
+  if (chunks.length > 1) {
+    const collected: Record<string, unknown>[] = [];
+    let elapsedMs = 0;
+    let promptTokens: number | null = null;
+
+    for (const chunk of chunks) {
+      const part = await extractOnce(llm, { ...input, pageText: chunk });
+      collected.push(...part.rows);
+      elapsedMs += part.elapsedMs;
+      if (part.promptTokens !== null) promptTokens = (promptTokens ?? 0) + part.promptTokens;
+    }
+
+    return { rows: collected, elapsedMs, promptTokens };
+  }
+
+  return extractOnce(llm, input);
+}
+
+/** 조각 하나를 뽑는다. 나누지 않는 경우도 이 경로를 지난다. */
+async function extractOnce(
+  llm: ExtractLLM,
+  input: { source: string; pageText: string; columns: readonly ColumnSpec[]; hint?: string }
+): Promise<ExtractResult> {
   const response = await llm.chat({
     purpose: 'agent.extract',
     temperature: 0,
@@ -170,6 +277,9 @@ export async function extractTable(
          * 흔적이고, 그대로 세면 "몇 건인가" 가 바로 틀어진다.
          */
         .filter((row) => Object.values(row).some((value) => String(value ?? '').trim() !== ''));
+
+      // 모델이 손댄 값을 본문 기준으로 되돌린다. 형식은 프롬프트가 아니라 여기서 지켜진다.
+      rows = groundValues(rows, input.pageText);
     }
   } catch (error) {
     // 구조화 출력이 깨진 것은 조용히 빈 결과로 넘길 일이 아니다 — 0건과 실패는 다르다.

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Agent, answerShapeProblem, type AgentDeps, type AgentLLM } from '../src/main/agent/Agent';
 import { MacroCache, routeOf, taskKey } from '../src/main/agent/MacroCache';
-import { ResultsCollector } from '../src/main/agent/Extract';
+import { chunkPageText, groundValues, ResultsCollector } from '../src/main/agent/Extract';
 import {
   AGENT_DONE,
   AGENT_EXTRACT,
@@ -237,6 +237,154 @@ describe('MacroCache', () => {
   });
 });
 
+describe('지금 어디에 있는가', () => {
+  /**
+   * 도구가 상대 주소(`?page=2`)를 받아 주기 시작한 뒤(2026-09-13) 생긴 구멍이다.
+   * 인자를 그대로 현재 주소로 삼으면 `lastUrl` 이 `?page=2` 가 되고 host 가 사라진다 —
+   * 매크로 키 · 사이트 메모 조회 · 메모 제안이 전부 그 host 를 쓴다.
+   */
+  it('상대 주소로 이동해도 finalUrl 을 현재 주소로 삼는다', async () => {
+    threads.create({ id: 'u1', title: '이동' });
+    new NoteStore(db).append('site:portal-a', '이 포털은 ?page= 로 넘긴다');
+
+    const llm = new ScriptedLLM([
+      call('navigate', { url: 'app://portal-a/list?page=1' }),
+      call('navigate', { url: '?page=2' }),
+      call(AGENT_DONE, { summary: '끝' })
+    ]);
+
+    const deps = makeDeps(llm, {
+      callTool: async (name, args) => {
+        calls.push({ name, args });
+        // 도구는 상대 주소를 풀어 절대 주소를 돌려준다(M2 계약: finalUrl).
+        const raw = String(args['url'] ?? '');
+        const finalUrl = raw.startsWith('?') ? `app://portal-a/list${raw}` : raw;
+        return { tabId: 1, requestedUrl: raw, finalUrl, title: '공지', redirected: false };
+      }
+    });
+
+    await new Agent(deps).run({ threadId: 'u1', instruction: '2페이지를 열어라' });
+
+    // host 를 알아봤다면 그 사이트 메모가 대화에 들어갔어야 한다.
+    const sent = JSON.stringify(llm.requests.at(-1)?.messages ?? []);
+    expect(sent).toContain('?page= 로 넘긴다');
+  });
+});
+
+describe('XHR 응답을 표의 출처로 넘기기', () => {
+  /**
+   * 실측(2026-09-14, 시나리오 B): 50건짜리 화면에서 9~13행만 뽑혔다. 봉투(주소·상태·
+   * 바이트 수)를 통째로 넘기는 바람에 6,000자 상한을 메타데이터가 먼저 먹고 본문이 잘렸다.
+   * 여기서는 **본문만** 넘어가는지를 본다.
+   */
+  it('봉투를 벗기고 응답 본문만 넘긴다', async () => {
+    threads.create({ id: 'n1', title: 'XHR' });
+
+    const body = JSON.stringify({ items: [{ id: 'INC1' }, { id: 'INC2' }] });
+    const llm = new ScriptedLLM([call('read_network_requests', { urlPattern: '/api' })]);
+
+    const deps = makeDeps(llm, {
+      callTool: async () => ({
+        tabId: 1,
+        requests: [
+          { requestId: 'r1', url: 'app://portal-b/api/incidents', method: 'GET', status: 200, body },
+          // 같은 본문이 또 잡혀도 한 번만 쓴다 — 중복은 상한만 먹는다.
+          { requestId: 'r2', url: 'app://portal-b/api/incidents', method: 'GET', status: 200, body }
+        ],
+        bodyLimitBytes: 262144,
+        bodyBytesUsed: body.length * 2,
+        bodiesEvicted: 0
+      })
+    });
+
+    await new Agent(deps).run({
+      threadId: 'n1',
+      instruction: '사건 4건을 표로 뽑아라',
+      keyColumns: ['id']
+    });
+
+    // 추출기에 넘어간 본문을 본다(구조화 출력 요청의 사용자 메시지).
+    const extractRequest = llm.requests.find(
+      (request) => request.jsonSchema?.name === 'extracted_rows'
+    );
+
+    expect(extractRequest, '추출을 시도하지 않았습니다').toBeDefined();
+
+    const sent = JSON.stringify(extractRequest?.messages ?? []);
+    expect(sent).toContain('INC1');
+    // 봉투의 흔적이 넘어가면 안 된다.
+    expect(sent).not.toContain('bodyLimitBytes');
+    expect(sent).not.toContain('requestId');
+  });
+});
+
+describe('긴 본문 나눠 뽑기', () => {
+  /**
+   * 실측(2026-09-14, 시나리오 B): 50건이 담긴 XHR 응답(약 10KB)을 상한에서 그냥 자르자
+   * 세 회차 모두 9행만 나왔다. 조용히 자르면 "9건뿐" 과 "9건까지만 보여 줬다" 가 구별되지
+   * 않는다 — 행 수가 판정의 거의 전부인 수집 작업에서 가장 나쁜 조용한 오차다.
+   */
+  it('짧은 본문은 통째로 하나다', () => {
+    expect(chunkPageText('짧다')).toEqual(['짧다']);
+  });
+
+  it('긴 본문은 나뉘고, 조각이 겹쳐 경계의 행을 잃지 않는다', () => {
+    const text = 'x'.repeat(10_000);
+    const chunks = chunkPageText(text);
+
+    expect(chunks.length).toBeGreaterThan(1);
+
+    // 겹침이 있어야 한다 — 조각 길이의 합이 원본보다 길다.
+    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    expect(total).toBeGreaterThan(text.length);
+  });
+
+  it('아무리 길어도 조각 수에 상한이 있다 — 화면 하나가 예산을 다 먹지 않게', () => {
+    expect(chunkPageText('y'.repeat(1_000_000)).length).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('본문 대조', () => {
+  /**
+   * 실측(2026-09-14): 포털이 `2026-01-01` 을 보여 주는데 모델이
+   * `2026-01-01T00:00:00.000Z` 로 적었다. 세 회차 모두 정확히 20건씩.
+   * 프롬프트에 "YYYY-MM-DD 로 맞춘다" 가 있었는데도 그랬다 — 형식은 코드가 지킨다.
+   */
+  const page = '1\t사내 공지 001\t2026-01-01\n2\t사내 공지 002\t2026-01-02';
+
+  it('본문에 없는 값이고 날짜 부분만 본문에 있으면 본문 쪽으로 되돌린다', () => {
+    const rows = groundValues(
+      [{ id: '1', postedAt: '2026-01-01T00:00:00.000Z' }],
+      page
+    );
+
+    expect(rows[0]?.['postedAt']).toBe('2026-01-01');
+  });
+
+  it('본문에 그대로 있는 값은 건드리지 않는다', () => {
+    const rows = groundValues([{ id: '1', postedAt: '2026-01-01' }], page);
+    expect(rows[0]?.['postedAt']).toBe('2026-01-01');
+  });
+
+  it('화면이 정말 전체 타임스탬프를 보여 주면 그대로 둔다', () => {
+    // 포털 B 의 openedAt 이 이렇다. 여기서 날짜만 남기면 화면에 있는 정보를 버리는 것이다.
+    const iso = '2026-06-01T00:00:00.000Z';
+    const rows = groundValues([{ id: 'INC1', openedAt: iso }], `INC1\t${iso}`);
+
+    expect(rows[0]?.['openedAt']).toBe(iso);
+  });
+
+  it('날짜가 아닌 값은 본문에 없어도 그대로 둔다 — 지우는 것이 일이 아니다', () => {
+    const rows = groundValues([{ id: '1', title: '모델이 줄인 제목' }], page);
+    expect(rows[0]?.['title']).toBe('모델이 줄인 제목');
+  });
+
+  it('본문이 비면 아무것도 바꾸지 않는다', () => {
+    const rows = groundValues([{ postedAt: '2026-01-01T00:00:00.000Z' }], '');
+    expect(rows[0]?.['postedAt']).toBe('2026-01-01T00:00:00.000Z');
+  });
+});
+
 describe('ResultsCollector', () => {
   it('중복은 세고 버린다', () => {
     const collector = new ResultsCollector(['id']);
@@ -400,6 +548,183 @@ describe('에이전트 루프', () => {
     expect(outcome.status).toBe('failed');
     expect(outcome.reason).toBe('incomplete');
     expect(threads.get('t2')?.status).toBe('failed');
+  });
+
+  /**
+   * 경계 — 2026-09-14 사람 결정(선택지 2: 범위를 나눈다).
+   *
+   * 7B 로는 여러 화면 순회가 안 된다는 것이 실측으로 확정됐다(`docs/eval.md` 2026-09-13).
+   * 그 일은 M5 워크플로우가 결정적으로 한다. 에이전트는 **자기 경계를 알고 넘겨야** 하고,
+   * 그 넘김이 실패를 감추는 탈출구가 되어서는 안 된다 — 아래 네 테스트가 그 둘을 함께 못박는다.
+   */
+  it('여러 화면을 돌다 규모에서 막히면 실패가 아니라 경계로 넘긴다', async () => {
+    threads.create({ id: 'h1', title: '수집' });
+
+    // 두 화면을 돌며 20행씩 모으고, 그 뒤로는 더 나아가지 못한다.
+    const page = (mark: string): Record<string, string>[] =>
+      Array.from({ length: 20 }, (_unused, index) => ({ id: `${mark}${index}` }));
+
+    const llm = new ScriptedLLM([
+      call('navigate', { url: 'app://portal-a/list?page=1' }),
+      call(AGENT_EXTRACT, { rows: page('A') }),
+      call('navigate', { url: 'app://portal-a/list?page=2' }),
+      call(AGENT_EXTRACT, { rows: page('B') }),
+      ...Array.from({ length: 12 }, () => call(AGENT_DONE, { summary: '끝' }))
+    ]);
+
+    const deps = makeDeps(llm);
+    const outcome = await new Agent(deps).run({
+      threadId: 'h1',
+      instruction: '공지 200건을 표로 뽑아라',
+      keyColumns: ['id']
+    });
+
+    expect(outcome.status).toBe('handoff');
+    expect(outcome.reason).toBe('needs_workflow');
+    expect(outcome.rows).toBe(40);
+
+    // 근거가 함께 와야 사람이 판단을 검산할 수 있다.
+    expect(outcome.handoff?.screenYield).toBe(20);
+    expect(outcome.handoff?.target).toBe(200);
+    expect(outcome.handoff?.screensNeeded).toBe(10);
+
+    // 모은 것은 버리지 않는다 — 부분 결과도 결과다.
+    expect(deps.results.get('h1')).toHaveLength(40);
+
+    // 스레드는 고장이 아니다. 왜 목표에 못 미쳤는지는 closedReason 이 말한다.
+    expect(threads.get('h1')?.status).toBe('done');
+    expect(threads.get('h1')?.closedReason).toBe('needs_workflow');
+  });
+
+  it('경계로 넘기면 받은편지함에 다음 수단이 남는다', async () => {
+    threads.create({ id: 'h2', title: '수집' });
+
+    const page = (mark: string): Record<string, string>[] =>
+      Array.from({ length: 20 }, (_unused, index) => ({ id: `${mark}${index}` }));
+
+    const llm = new ScriptedLLM([
+      call('navigate', { url: 'app://portal-a/list?page=1' }),
+      call(AGENT_EXTRACT, { rows: page('A') }),
+      call('navigate', { url: 'app://portal-a/list?page=2' }),
+      call(AGENT_EXTRACT, { rows: page('B') }),
+      ...Array.from({ length: 12 }, () => call(AGENT_DONE, { summary: '끝' }))
+    ]);
+
+    const deps = makeDeps(llm);
+    await new Agent(deps).run({
+      threadId: 'h2',
+      instruction: '공지 200건을 표로 뽑아라',
+      keyColumns: ['id']
+    });
+
+    const items = new Inbox(db).list({ threadId: 'h2' });
+    expect(items).toHaveLength(1);
+    expect(items[0]?.kind).toBe('result');
+    expect(items[0]?.title).toContain('40/200행');
+    expect(items[0]?.summary).toContain('워크플로우');
+  });
+
+  it('한두 행만 줍고 넘기는 것은 경계가 아니라 실패다', async () => {
+    threads.create({ id: 'h3', title: '수집' });
+
+    // 화면에 20행이 있는데 1행만 뽑았다면 추출이 실패한 것이다.
+    // 이것을 경계로 인정하면 "못 한 것" 을 "넘긴 것" 으로 위장하게 된다.
+    const llm = new ScriptedLLM([
+      call(AGENT_EXTRACT, { rows: [{ id: 'only' }] }),
+      ...Array.from({ length: 12 }, () => call(AGENT_DONE, { summary: '끝' }))
+    ]);
+
+    const outcome = await new Agent(makeDeps(llm)).run({
+      threadId: 'h3',
+      instruction: '공지 200건을 표로 뽑아라',
+      keyColumns: ['id']
+    });
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toBe('incomplete');
+    expect(threads.get('h3')?.status).toBe('failed');
+  });
+
+  it('마지막 화면이 재방문이라 0행이어도, 한 화면 몫을 해낸 적이 있으면 경계다', async () => {
+    threads.create({ id: 'h6', title: '수집' });
+
+    /**
+     * 실측(2026-09-14, 시나리오 A 2회차): 네 화면을 돌며 60행을 모은 실행이 마지막에
+     * **이미 뽑은 화면을 다시 읽어** 새 행이 0이 되었고, 그 0 때문에 경계가 거부돼
+     * `failed` 로 끝났다. 재방문은 "화면을 못 뽑는다" 가 아니라 "이미 뽑았다" 는 뜻이다.
+     */
+    const page = (mark: string): Record<string, string>[] =>
+      Array.from({ length: 20 }, (_unused, index) => ({ id: `${mark}${index}` }));
+
+    const llm = new ScriptedLLM([
+      call('navigate', { url: 'app://portal-a/list?page=1' }),
+      call(AGENT_EXTRACT, { rows: page('A') }),
+      call('navigate', { url: 'app://portal-a/list?page=2' }),
+      call(AGENT_EXTRACT, { rows: page('B') }),
+      // 앞 화면을 다시 읽는다 — 전부 중복이라 새 행은 0이다.
+      call(AGENT_EXTRACT, { rows: page('A') }),
+      ...Array.from({ length: 12 }, () => call(AGENT_DONE, { summary: '끝' }))
+    ]);
+
+    const outcome = await new Agent(makeDeps(llm)).run({
+      threadId: 'h6',
+      instruction: '공지 200건을 표로 뽑아라',
+      keyColumns: ['id']
+    });
+
+    expect(outcome.status).toBe('handoff');
+    expect(outcome.handoff?.screenYield).toBe(20);
+    expect(outcome.rows).toBe(40);
+  });
+
+  it('한 자리에서만 모으다 만 것은 경계가 아니다 — 순회를 시도한 적이 없다', async () => {
+    threads.create({ id: 'h5', title: '수집' });
+
+    /**
+     * 실측(2026-09-14)에서 시나리오 B 가 이 모양이었다: 50건짜리 한 화면에서 13행만 뽑고
+     * 멈춘다. 수확 하한(5행)과 "목표가 수확의 2배" 는 통과하지만 **화면을 옮긴 적이 없다.**
+     * 이것을 경계로 부르면 "한 화면 몫도 못 한 것" 을 넘김으로 위장하게 된다.
+     */
+    const partial = Array.from({ length: 13 }, (_unused, index) => ({ id: `D${index}` }));
+    const llm = new ScriptedLLM([
+      call('navigate', { url: 'app://portal-b/incidents' }),
+      call(AGENT_EXTRACT, { rows: partial }),
+      ...Array.from({ length: 12 }, () => call(AGENT_DONE, { summary: '끝' }))
+    ]);
+
+    const outcome = await new Agent(makeDeps(llm)).run({
+      threadId: 'h5',
+      instruction: '사건 137건을 표로 뽑아라',
+      keyColumns: ['id']
+    });
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toBe('incomplete');
+  });
+
+  it('목표가 한 화면 안에 있는데 못 채운 것도 실패다', async () => {
+    threads.create({ id: 'h4', title: '수집' });
+
+    // 목표 25행, 한 화면에서 20행 — 한 화면으로 도달할 수 있는 거리다.
+    // 여기서 넘기면 "조금 모자란 것" 을 전부 경계로 부르게 된다.
+    // 화면은 둘을 돌았다 — 걸러지는 이유가 순회 부족이 아니라 **목표가 한 화면 거리**임을
+    // 분명히 하기 위해서다.
+    const screen = Array.from({ length: 20 }, (_unused, index) => ({ id: `C${index}` }));
+    const llm = new ScriptedLLM([
+      call('navigate', { url: 'app://portal-a/list?page=1' }),
+      call(AGENT_EXTRACT, { rows: screen }),
+      call('navigate', { url: 'app://portal-a/list?page=2' }),
+      ...Array.from({ length: 12 }, () => call(AGENT_DONE, { summary: '끝' }))
+    ]);
+
+    const outcome = await new Agent(makeDeps(llm)).run({
+      threadId: 'h4',
+      instruction: '공지 25건을 표로 뽑아라',
+      keyColumns: ['id']
+    });
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toBe('incomplete');
   });
 
   it('같은 도구를 같은 인자로 3번 부르면 사람에게 묻는다', async () => {

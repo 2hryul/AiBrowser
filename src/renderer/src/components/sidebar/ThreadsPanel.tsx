@@ -151,12 +151,22 @@ export function ThreadsPanel(): JSX.Element {
         return;
       }
 
-      setMessage(
-        outcome.status === 'done'
-          ? `완료 · ${outcome.steps}단계 · 모델 ${outcome.llmCalls}회 · 캐시 ${outcome.macroHits}회` +
-              (outcome.rows > 0 ? ` · ${outcome.rows}행` : '')
-          : `${outcome.status}: ${outcome.summary}`
-      );
+      if (outcome.status === 'done') {
+        setMessage(
+          `완료 · ${outcome.steps}단계 · 모델 ${outcome.llmCalls}회 · 캐시 ${outcome.macroHits}회` +
+            (outcome.rows > 0 ? ` · ${outcome.rows}행` : '')
+        );
+        return;
+      }
+
+      // 경계에서 넘긴 것은 고장이 아니다. 한 화면 몫은 했고 다음 수단을 가리킨다 —
+      // 그 수단(워크플로우로 승격) 버튼이 바로 이 화면에 있다.
+      if (outcome.status === 'handoff') {
+        setMessage(`${outcome.rows}행 수집 · ${outcome.summary} 아래 "워크플로우로 승격" 을 누르세요.`);
+        return;
+      }
+
+      setMessage(`${outcome.status}: ${outcome.summary}`);
     });
   };
 

@@ -377,7 +377,7 @@ interface HelmWorkflowDraft {
 }
 
 interface HelmAgentOutcome {
-  status: 'done' | 'failed' | 'paused' | 'stopped';
+  status: 'done' | 'failed' | 'paused' | 'handoff' | 'stopped';
   steps: number;
   llmCalls: number;
   macroHits: number;
