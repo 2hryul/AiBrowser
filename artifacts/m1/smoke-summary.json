@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-09-13T09:18:29.414Z",
+  "ranAt": "2026-09-14T02:48:12.111Z",
   "m0": {
     "contentBounds": {
       "x": 240,
@@ -32,8 +32,8 @@
   },
   "downloads": {
     "file": "sample.pdf",
-    "savePath": "D:\\source\\AIBrowser\\.smoke-downloads\\sample.pdf",
-    "bytes": 630
+    "savePath": "D:\\SOURCE\\aiBrowser\\.smoke-downloads\\sample.pdf",
+    "bytes": 598
   },
   "omnibox": {
     "input": "hom",
@@ -88,15 +88,15 @@
   ],
   "screenshots": {
     "shell.png": {
-      "width": 1899,
-      "height": 1137,
-      "bytes": 36885,
+      "width": 1583,
+      "height": 948,
+      "bytes": 28108,
       "luminance": 30.3
     },
     "home-tab.png": {
-      "width": 1539,
-      "height": 1017,
-      "bytes": 30315,
+      "width": 1283,
+      "height": 848,
+      "bytes": 21716,
       "luminance": 250.4
     }
   },
@@ -105,7 +105,7 @@
     "cookie": "helm_smoke_session",
     "valueAfterRestart": "m1-persisted",
     "bookmarksAfterRestart": 1,
-    "historyAfterRestart": 12
+    "historyAfterRestart": 13
   },
   "profileImport": {
     "discovered": [
