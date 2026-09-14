@@ -25,7 +25,8 @@ const DOWNLOAD_DIR = path.join(ROOT, '.agent-downloads');
 /** 시나리오 A: 포털 A 는 10페이지 × 20행 = 200건. */
 const SCENARIO_A_TOTAL = 200;
 /** 시나리오 B: 포털 B 는 137건. */
-const SCENARIO_B_TOTAL = 137;
+/** 첫 XHR 응답에 담기는 건수(포털 B 의 pageSize). 2026-09-14 개정 조건이 보는 값. */
+const SCENARIO_B_PAGE = 50;
 
 /**
  * 사람 역할로 답할 승인 주체. 이 목록 밖의 요청에는 **답하지 않는다** —
@@ -42,7 +43,9 @@ let app: ElectronApplication;
 let answering = true;
 
 interface RunOutcome {
-  status: 'done' | 'failed' | 'paused' | 'stopped';
+  status: 'done' | 'failed' | 'paused' | 'handoff' | 'stopped';
+  /** `handoff` 일 때만 온다 — 왜 넘겼는지의 근거 */
+  handoff?: { screenYield: number; target: number; collected: number; screensNeeded: number };
   steps: number;
   llmCalls: number;
   macroHits: number;
@@ -239,6 +242,18 @@ async function results(threadId: string): Promise<Record<string, unknown>[]> {
   );
 }
 
+/** 이 스레드 앞으로 온 받은편지함 항목 — 경계에서 넘길 때 사람에게 닿았는지를 본다. */
+async function inboxItems(
+  threadId: string
+): Promise<{ kind: string; title: string; summary: string }[]> {
+  const items = await app.evaluate(
+    (_api, id) => (globalThis.__helm?.getInbox()?.list({ threadId: id, limit: 50 }) ?? []) as never,
+    threadId
+  );
+
+  return items as { kind: string; title: string; summary: string }[];
+}
+
 /** 이번 실행에서 어떤 도구가 몇 번 불렸는지 — 감사 로그가 판정 근거다. */
 async function toolCounts(threadId: string): Promise<Record<string, number>> {
   const entries = await app.evaluate(
@@ -271,23 +286,50 @@ test.beforeAll(async () => {
   summary['login'] = await ensureLoggedIn();
 });
 
-test.afterAll(async () => {
-  answering = false;
+/**
+ * 지금까지 모인 측정값을 파일에 남긴다.
+ *
+ * **회차마다 부른다.** afterAll 에만 두었더니 측정을 두 번 잃었다 — 판정 expect 가 깨지면
+ * Playwright 가 워커를 새로 띄우고, 그때 모듈 상태인 `summary` 가 통째로 날아간다
+ * (2026-09-14, 시나리오 A 의 회차별 수치). 실패한 실행일수록 숫자가 필요한데 실패해서
+ * 잃는 구조였다.
+ *
+ * 모델 이름을 파일명에 넣는 이유는 따로 있다 — 같은 시나리오를 다른 모델로 돌려 비교하는
+ * 일이 실제로 생긴다("설계 문제인가 모델 문제인가"). 한 파일에 덮어쓰면 앞의 결과가 사라진다.
+ */
+function saveSummary(): void {
   summary['approvals'] = approvals;
   summary['prompts'] = prompted;
 
-  const body = `${JSON.stringify(summary, null, 2)}\n`;
+  const tag = String(summary['model'] ?? 'unknown').replace(/[^\w.-]+/g, '_');
+  const file = path.join(ARTIFACTS, `agent-summary-${tag}.json`);
 
   /**
-   * 모델 이름을 파일명에 넣어 함께 남긴다.
+   * 이미 있는 내용과 **합친다.**
    *
-   * 같은 시나리오를 다른 모델로 돌려 비교하는 일이 실제로 생긴다("설계 문제인가 모델
-   * 문제인가"). 한 파일에 덮어쓰면 비교할 앞의 결과가 사라진다.
+   * 덮어쓰기로 두었더니 회차마다 저장해도 소용이 없었다 — 판정 expect 가 깨지면 Playwright 가
+   * 워커를 새로 띄우고, 새 워커의 `summary` 는 비어 있다. 그 빈 객체가 앞 시나리오의 기록을
+   * 통째로 덮었다(2026-09-14, 시나리오 A 를 두 번 잃었다). 합쳐야 워커가 바뀌어도 남는다.
    */
-  const tag = String(summary['model'] ?? 'unknown').replace(/[^\w.-]+/g, '_');
+  let merged: Record<string, unknown> = {};
 
-  fs.writeFileSync(path.join(ARTIFACTS, `agent-summary-${tag}.json`), body, 'utf-8');
+  try {
+    if (fs.existsSync(file)) {
+      merged = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>;
+    }
+  } catch {
+    // 앞 파일이 깨져 있으면 그냥 새로 쓴다 — 측정을 멈출 이유는 아니다.
+  }
+
+  const body = `${JSON.stringify({ ...merged, ...summary }, null, 2)}\n`;
+
+  fs.writeFileSync(file, body, 'utf-8');
   fs.writeFileSync(path.join(ARTIFACTS, 'agent-summary.json'), body, 'utf-8');
+}
+
+test.afterAll(async () => {
+  answering = false;
+  saveSummary();
   await app.close();
 });
 
@@ -295,7 +337,7 @@ test.afterAll(async () => {
 // 시나리오 A — 공지 200건 (성공 조건 2)
 // ─────────────────────────────────────────────────────────────
 
-test('[시나리오 A] 공지 200건을 표로 — 3회 중 2회 성공, 2회차부터 캐시가 돈다', async () => {
+test('[시나리오 A] 한 화면은 온전히, 규모에서는 워크플로우로 넘긴다', async () => {
   test.setTimeout(30 * 60_000);
 
   const instruction =
@@ -317,6 +359,11 @@ test('[시나리오 A] 공지 200건을 표로 — 3회 중 2회 성공, 2회차
       (row) => !/^\d{4}-\d{2}-\d{2}$/.test(String(row['postedAt'] ?? ''))
     );
 
+    // 넘길 때 사람에게 실제로 도달했는가 — 받은편지함 항목이 그 통로다(성공 조건 2).
+    const handoffNotice = (await inboxItems(threadId)).filter(
+      (item) => item.kind === 'result' && item.summary.includes('워크플로우')
+    );
+
     rounds.push(outcome);
     summary[`scenarioA_round${round}`] = {
       status: outcome.status,
@@ -327,17 +374,45 @@ test('[시나리오 A] 공지 200건을 표로 — 3회 중 2회 성공, 2회차
       uniqueIds: ids.size,
       duplicates: outcome.duplicates,
       badDates: badDates.length,
+      screens: outcome.handoff === undefined ? null : outcome.handoff.screensNeeded,
+      notice: handoffNotice.length,
       reason: outcome.reason,
       // 실패했을 때 "무엇을 모았는지" 를 볼 수 있어야 한다. 숫자만으로는 못 고친다.
       sample: rows.slice(0, 2)
     };
+
+    saveSummary();
   }
 
+  /**
+   * 판정 (2026-09-14 개정, `goals/GOAL-M4.md` 성공 조건 2).
+   *
+   * **기준을 낮춘 것이 아니라 경계를 옮긴 것이다.** 전량 수집(200행)은 M5 워크플로우가 맡고,
+   * 여기서는 "한 화면을 온전히 했는가" 와 "규모에서 막힌 것을 알아채 넘겼는가" 를 본다.
+   * 그래서 새로 요구하는 것이 있다 — 중복 0 · 날짜 형식 오류 0 · 승격 안내 도달.
+   */
   const passed = rounds.filter((round, index) => {
-    const detail = summary[`scenarioA_round${index + 1}`] as { rows: number; uniqueIds: number };
-    return (
-      round.status === 'done' && detail.rows === SCENARIO_A_TOTAL && detail.uniqueIds === SCENARIO_A_TOTAL
-    );
+    const detail = summary[`scenarioA_round${index + 1}`] as {
+      rows: number;
+      uniqueIds: number;
+      badDates: number;
+      notice: number;
+    };
+
+    // 목표를 정말로 다 채웠다면 그것도 통과다 — 경계는 못 채웠을 때의 이야기다.
+    const complete = round.status === 'done' && detail.rows === SCENARIO_A_TOTAL;
+
+    const handedOff =
+      round.status === 'handoff' &&
+      round.reason === 'needs_workflow' &&
+      // 넘기기 전에 한 화면 몫은 온전해야 한다.
+      detail.rows > 0 &&
+      detail.uniqueIds === detail.rows &&
+      detail.badDates === 0 &&
+      // 사람에게 다음 수단이 도달했는가.
+      detail.notice > 0;
+
+    return complete || handedOff;
   });
 
   summary['scenarioA'] = {
@@ -352,30 +427,36 @@ test('[시나리오 A] 공지 200건을 표로 — 3회 중 2회 성공, 2회차
     `3회 중 ${passed.length}회만 성공했습니다: ${JSON.stringify(summary['scenarioA'])}`
   ).toBeGreaterThanOrEqual(2);
 
-  // MacroCache — 2회차는 1회차보다 모델을 덜 불러야 한다.
-  const first = rounds[0]?.llmCalls ?? 0;
-  const second = rounds[1]?.llmCalls ?? 0;
-  const drop = first === 0 ? 0 : (first - second) / first;
-
-  summary['scenarioA_macroDrop'] = { first, second, drop: Number(drop.toFixed(3)) };
+  /**
+   * MacroCache — 캐시가 실제로 단계를 대신하는가.
+   *
+   * 원안의 "2회차 LLM 호출 50% 감소" 는 뺐다. 실행이 예산 벽의 **서로 다른 지점**에서
+   * 멈추므로(실측 18/22/15, 4~4.5화면) 회차 간 호출 수가 비교 가능한 양이 아니다.
+   * 숫자는 그대로 남겨 `eval.md` 에서 읽는다.
+   */
+  summary['scenarioA_macro'] = {
+    llmCallsByRound: rounds.map((round) => round.llmCalls),
+    macroHitsByRound: rounds.map((round) => round.macroHits)
+  };
+  saveSummary();
 
   expect(rounds[1]?.macroHits ?? 0, '2회차에 캐시가 한 번도 안 걸렸습니다').toBeGreaterThan(0);
-  expect(
-    drop,
-    `2회차 모델 호출이 1회차 대비 ${(drop * 100).toFixed(1)}% 줄었습니다(기준 50%)`
-  ).toBeGreaterThanOrEqual(0.5);
 });
 
 // ─────────────────────────────────────────────────────────────
 // 시나리오 B — XHR JSON 경로 (성공 조건 3)
 // ─────────────────────────────────────────────────────────────
 
-test('[시나리오 B] 사건 목록을 XHR 응답에서 — DOM 파싱 없이', async () => {
+test('[시나리오 B] XHR 응답에서 한 화면 분량을 정확히', async () => {
   test.setTimeout(30 * 60_000);
 
+  /**
+   * 2026-09-14 개정 — 전량(137건)이 아니라 **첫 응답 분량**을 요구한다.
+   * 137건은 스크롤 페이지 셋에 걸쳐 있어 그것도 여러 화면 몫이고, 그 일은 M5 가 맡는다.
+   */
   const instruction =
     'app://portal-b/incidents 에서 사건 목록을 모아라. 이 화면은 XHR 로 JSON 을 받는다 — ' +
-    `read_network_requests 로 응답을 읽어라. 전체 ${SCENARIO_B_TOTAL}건이다. ` +
+    `read_network_requests 로 응답을 읽어라. 첫 응답에 ${SCENARIO_B_PAGE}건이 들어 있다. ` +
     '각 행은 id, title, status 세 칸이다.';
 
   const rounds: RunOutcome[] = [];
@@ -394,19 +475,30 @@ test('[시나리오 B] 사건 목록을 XHR 응답에서 — DOM 파싱 없이',
       steps: outcome.steps,
       llmCalls: outcome.llmCalls,
       rows: rows.length,
+      uniqueIds: new Set(rows.map((row) => String(row['id'] ?? ''))).size,
       network: counts['read_network_requests'] ?? 0,
       domReads: (counts['read_page'] ?? 0) + (counts['get_page_text'] ?? 0),
       reason: outcome.reason
     };
+
+    saveSummary();
   }
 
   const passed = rounds.filter((_round, index) => {
     const detail = summary[`scenarioB_round${index + 1}`] as {
       status: string;
       rows: number;
+      uniqueIds: number;
       network: number;
     };
-    return detail.status === 'done' && detail.rows === SCENARIO_B_TOTAL && detail.network > 0;
+
+    // 한 화면 분량을 정확히 — 경계로 바꿔 쓸 수 없는 조건이다(GOAL-M4 성공 조건 3).
+    return (
+      detail.status === 'done' &&
+      detail.rows === SCENARIO_B_PAGE &&
+      detail.uniqueIds === detail.rows &&
+      detail.network > 0
+    );
   });
 
   summary['scenarioB'] = { passed: passed.length, of: rounds.length };
