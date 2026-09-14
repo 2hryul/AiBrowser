@@ -15,6 +15,11 @@
   "tools": {
     "javascript": "ask"
   },
+  "allowPasswordImport": true,
+  "externalLoginHosts": [
+    "idp-form",
+    "idp-oauth"
+  ],
   "grants": [],
   "retentionDays": 30
 }

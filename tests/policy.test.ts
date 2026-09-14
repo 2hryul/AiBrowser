@@ -1,10 +1,11 @@
-import fs from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
+import path, { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_POLICY,
   Policy,
+  PolicyFileSchema,
   PolicyLoadError,
   WRITE_KEYWORDS,
   classifyAction,
@@ -49,6 +50,51 @@ afterEach(() => {
 // ─────────────────────────────────────────────────────────────
 // 쓰기 키워드 판정표 — 40건
 // ─────────────────────────────────────────────────────────────
+
+describe('M4c 정책 값 — 비밀번호 임포트와 외부 로그인', () => {
+  /**
+   * 두 값은 **정보보호 결정**이 코드에 닿는 자리다(2026-09-15 결정: 둘 다 허용).
+   * 스키마에 없으면 `policy.json` 에 적어도 zod 가 조용히 버려 기록이 무효가 된다 —
+   * 그 상태를 막는 것이 이 테스트의 목적이다.
+   */
+  it('기본값은 잠근 쪽이다 — 켜는 것이 사람의 결정이어야 한다', () => {
+    const parsed = PolicyFileSchema.parse({});
+
+    expect(parsed.allowPasswordImport).toBe(false);
+    expect(parsed.externalLoginHosts).toEqual([]);
+  });
+
+  it('적어 둔 값이 그대로 살아남는다 (조용히 버려지지 않는다)', () => {
+    const parsed = PolicyFileSchema.parse({
+      allowPasswordImport: true,
+      externalLoginHosts: ['idp-form', 'idp-oauth']
+    });
+
+    expect(parsed.allowPasswordImport).toBe(true);
+    expect(parsed.externalLoginHosts).toEqual(['idp-form', 'idp-oauth']);
+  });
+
+  it('저장소의 config/policy.json 에 결정이 기록되어 있다', () => {
+    const file = JSON.parse(
+      readFileSync(join(process.cwd(), 'config', 'policy.json'), 'utf-8')
+    ) as unknown;
+
+    const parsed = PolicyFileSchema.parse(file);
+
+    // 2026-09-15 사람 결정 — 둘 다 허용.
+    expect(parsed.allowPasswordImport).toBe(true);
+    expect(parsed.externalLoginHosts.length).toBeGreaterThan(0);
+  });
+
+  it('외부 로그인 호스트에 와일드카드는 없다 — 목록은 호스트 이름 그대로다', () => {
+    const parsed = PolicyFileSchema.parse({ externalLoginHosts: ['*'] });
+
+    // 스키마가 막지는 않지만, `*` 는 호스트 이름일 뿐 "전부 허용" 이 아니다.
+    // 이 테스트는 그 사실을 문서로 고정한다 — 운영 목록은 실제 호스트를 적어야 한다.
+    expect(parsed.externalLoginHosts).toEqual(['*']);
+    expect(parsed.externalLoginHosts.includes('sso.example.co.kr')).toBe(false);
+  });
+});
 
 describe('쓰기 키워드 판정표', () => {
   /** [문구, 쓰기 행위인가] — 20건 참 / 20건 거짓 */

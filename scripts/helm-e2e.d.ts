@@ -108,6 +108,10 @@ interface HelmPolicyHook {
     deny: { hosts: string[]; tools: string[] };
     tools: Record<string, string>;
     grants: { subject: string; host: string; scope: string; threadId?: string; grantedAt: number }[];
+    /** M4c — 마법사에 저장 비밀번호 항목을 보여 줄지 */
+    allowPasswordImport: boolean;
+    /** M4c — 외부 브라우저 폴백을 허용할 호스트 화이트리스트 */
+    externalLoginHosts: string[];
     retentionDays: number;
   };
   isLocked: () => boolean;

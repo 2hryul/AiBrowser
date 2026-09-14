@@ -48,6 +48,24 @@ export const PolicyFileSchema = z.object({
   /** 도구별 기본 판정. 여기 없으면 sideEffect 로 판단한다. */
   tools: z.record(z.string(), SiteDecisionSchema).default({}),
   grants: z.array(GrantSchema).default([]),
+  /**
+   * 최초 구동 마법사에서 **저장된 비밀번호** 항목을 보여 줄지(M4c).
+   *
+   * 기본은 false 다 — 켜는 것이 사람의 결정이어야 한다. true 여도 자동으로 가져오지 않는다.
+   * 마법사에서 명시 동의를 한 번 더 받고, 가져온 값은 OS 자격증명 관리자로 옮긴 뒤
+   * 평문을 즉시 지운다. 관리자가 `locked` 로 이 값을 잠글 수 있다(M6).
+   *
+   * 이 값이 true 라도 **세션 쿠키·토큰은 여전히 가져오지 않는다**(불변 조건 9).
+   * 비밀번호와 세션은 다른 물건이다.
+   */
+  allowPasswordImport: z.boolean().default(false),
+  /**
+   * 외부 브라우저(`login_start` 의 `external`) 폴백을 허용할 **호스트 화이트리스트**(M4c).
+   *
+   * 와일드카드는 없다 — 호스트 이름을 그대로 적는다(`deny.hosts` 와 같은 규칙).
+   * 목록 밖 호스트는 실행 자체가 거부된다. 비어 있으면 외부 폴백을 쓰지 않는다는 뜻이다.
+   */
+  externalLoginHosts: z.array(z.string()).default([]),
   /** 감사 로그·스크린샷 보존 일수 */
   retentionDays: z.number().int().positive().default(30)
 });
@@ -62,6 +80,9 @@ export const DEFAULT_POLICY: PolicyFile = {
   // javascript 는 무엇을 실행할지 알 수 없어 기본이 ask 다(GOAL-M3 FIXED DECISIONS).
   tools: { javascript: 'ask' },
   grants: [],
+  // 기본은 잠근 쪽이다 — 켜는 것이 사람의 결정이어야 한다(M4c).
+  allowPasswordImport: false,
+  externalLoginHosts: [],
   retentionDays: 30
 };
 

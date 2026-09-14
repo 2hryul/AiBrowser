@@ -1,21 +1,21 @@
 {
-  "ranAt": "2026-09-14T02:48:12.111Z",
+  "ranAt": "2026-09-14T23:44:23.208Z",
   "m0": {
     "contentBounds": {
       "x": 240,
       "y": 48,
       "width": 1026,
-      "height": 710
+      "height": 736
     },
     "pageViewport": {
       "w": 1026,
-      "h": 710
+      "h": 736
     },
     "shellBounds": {
       "x": 0,
       "y": 0,
       "width": 1266,
-      "height": 758
+      "height": 784
     },
     "tabsAfterClose": 2
   },
@@ -89,8 +89,8 @@
   "screenshots": {
     "shell.png": {
       "width": 1583,
-      "height": 948,
-      "bytes": 28108,
+      "height": 980,
+      "bytes": 28338,
       "luminance": 30.3
     },
     "home-tab.png": {
@@ -105,7 +105,7 @@
     "cookie": "helm_smoke_session",
     "valueAfterRestart": "m1-persisted",
     "bookmarksAfterRestart": 1,
-    "historyAfterRestart": 13
+    "historyAfterRestart": 12
   },
   "profileImport": {
     "discovered": [
