@@ -38,6 +38,16 @@ export function idpHasSession(host: string): boolean {
 }
 
 /**
+ * 테스트 전용 — 세션을 직접 심는다.
+ *
+ * `external` 경로의 "외부 브라우저에서 로그인을 마쳤다" 를 재현하는 용도다. 실제 외부
+ * 브라우저는 fixture 프로세스 밖이라 세션을 만들 수 없으므로, E2E 가 이 훅으로 대신 심는다.
+ */
+export function idpForceLogin(host: string): void {
+  sessions.add(host);
+}
+
+/**
  * 임베디드 웹뷰인가.
  *
  * `Electron/` 토큰이 남아 있으면 앱 안에 박힌 웹뷰로 본다. 실제 IdP 가 쓰는 신호와 같다.
@@ -230,6 +240,7 @@ export async function routeIdpOauth(url: URL, request: GlobalRequest): Promise<R
 export const idpHooks = {
   reset: idpReset,
   hasSession: idpHasSession,
+  login: idpForceLogin,
   looksEmbedded,
   user: USER,
   password: PASSWORD

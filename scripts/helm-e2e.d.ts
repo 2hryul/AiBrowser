@@ -501,6 +501,24 @@ interface HelmE2EHook {
   }) => HelmScheduleEntry | null;
   fireSchedule: (id: string) => Promise<unknown | null>;
   setSettleApi: (enabled: boolean) => Promise<boolean>;
+
+  // M4c 로그인·임포트
+  idpHasSession: (host: string) => Promise<boolean>;
+  idpReset: () => Promise<void>;
+  idpLogin: (host: string) => Promise<void>;
+  idpCreds: () => Promise<{ user: string; password: string }>;
+  credentialTargets: () => { target: string; username: string }[];
+  fileAccesses: () => string[];
+  loginStart: (
+    url: string,
+    method: 'inapp' | 'oauth_modal' | 'external'
+  ) => Promise<{
+    status: 'logged_in' | 'denied' | 'failed' | 'cancelled';
+    method: 'inapp' | 'oauth_modal' | 'external';
+    host: string;
+    fellBackFrom?: 'inapp' | 'oauth_modal' | 'external';
+    reason: string;
+  } | null>;
 }
 
 declare global {

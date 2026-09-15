@@ -37,8 +37,9 @@ import { CheckpointStore, type Checkpoint } from './persistence/CheckpointStore'
 import { Inbox } from './persistence/Inbox';
 import { Scheduler } from './scheduler/Scheduler';
 import { importPasswordCsv } from './browser/PasswordImport';
-import { WindowsCredentialStore } from './sessions/CredentialStore';
+import { MemoryCredentialStore, WindowsCredentialStore } from './sessions/CredentialStore';
 import { LoginBroker, type LoginProbe, type ModalResult } from './sessions/LoginBroker';
+import { loginGateOf } from './sessions/SessionExpiry';
 import { checkDraft, promoteThread } from './workflow/Promote';
 import { WorkflowRunner, type WorkflowRunOutcome } from './workflow/Runner';
 import { NoteStore } from './persistence/NoteStore';
@@ -76,6 +77,28 @@ if (userDataOverride) {
 }
 
 const isE2E = process.env['HELM_E2E'] === '1';
+
+/**
+ * E2E 파일 접근 기록 — "Cookies·Local State 접근 0건" 판정의 근거(GOAL-M4c 성공 조건 3).
+ *
+ * 내용을 **읽는** 호출만 기록한다. `existsSync`·`readdirSync` 는 열거일 뿐 읽기가 아니고,
+ * 임포트가 "가져오지 않은 파일" 을 세려면 열거는 해야 한다. 상한을 두는 이유는 이 기록이
+ * E2E 프로세스가 사는 동안 계속 쌓이기 때문이다 — 판정에 필요한 건 앞부분이 아니라 전부지만,
+ * 무한히 크게 두면 기록 자체가 테스트를 무너뜨린다.
+ */
+const fileAccessLog: string[] = [];
+if (isE2E) {
+  const FILE_ACCESS_LOG_LIMIT = 100_000;
+  for (const name of ['openSync', 'readFileSync', 'createReadStream', 'copyFileSync'] as const) {
+    const original = fs[name] as (...args: unknown[]) => unknown;
+    (fs as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {
+      if (typeof args[0] === 'string' && fileAccessLog.length < FILE_ACCESS_LOG_LIMIT) {
+        fileAccessLog.push(args[0]);
+      }
+      return original.apply(fs, args);
+    };
+  }
+}
 
 /** 유휴 언로드 임계 시간. 30분을 기다릴 수 없는 테스트가 줄여 쓴다. */
 const idleUnloadOverride = Number(process.env['HELM_IDLE_UNLOAD_MS'] ?? '');
@@ -147,6 +170,13 @@ let macroCache: MacroCache | null = null;
 let toolSupportProbed = false;
 /** 지금 도는 에이전트. 사람이 "여기까지" 를 누르면 이 신호를 끊는다. */
 const runningAgents = new Map<string, AbortController>();
+
+/**
+ * E2E 자격증명 대역 — 실제 Windows 자격증명 관리자 대신 메모리에 담는다(GOAL-M4c 성공 조건 3).
+ * 실물 연동은 단위 테스트에서 실측으로 검증했고, E2E 는 개발 머신의 자격증명 관리자를
+ * 더럽히지 않는 것이 맞다.
+ */
+const e2eCredentialStore = isE2E ? new MemoryCredentialStore() : null;
 /** 사람 확인을 기다리는 사이트 메모 제안. 자동 저장하지 않는다(GOAL-M4 성공 조건 6). */
 let pendingNoteProposal: { threadId: string; host: string; text: string } | null = null;
 
@@ -535,6 +565,81 @@ function refreshAiState(partial: Partial<AiState> = {}): void {
 }
 
 /**
+ * 세션 만료 감지 — 에이전트 밖(M4c).
+ *
+ * 내장 에이전트는 자기 루프에서 로그인 게이트를 본다(`Agent.loginGate`). 여기는 그 밖 —
+ * MCP 클라이언트가 몰던 탭, 체크포인트 복원으로 다시 열린 탭이 로그인 화면으로 되밀리는
+ * 경우를 잡는다. 판정 로직은 `sessions/SessionExpiry.ts`(Electron 없이 단위 테스트한다).
+ */
+function watchSessionExpiry(wc: Electron.WebContents): void {
+  let requestedUrl = '';
+
+  wc.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) requestedUrl = details.url;
+  });
+
+  wc.on('did-finish-load', () => {
+    void checkLoginGate(wc, requestedUrl).catch((error) => {
+      console.warn('[SessionExpiry] 로그인 게이트 판정 실패', error);
+    });
+  });
+}
+
+async function checkLoginGate(wc: Electron.WebContents, requestedUrl: string): Promise<void> {
+  if (!tabManager || !handoff || !threadStore || !inbox || wc.isDestroyed()) return;
+
+  const tabId = tabManager.tabIdForWebContents(wc);
+  if (tabId === null) return;
+
+  // 스레드가 몰고 있는 탭만 본다 — 사람 탭에는 `waiting_login` 으로 내릴 스레드가 없다.
+  const threadId = handoff.ownerOf(tabId);
+  if (threadId === null) return;
+
+  // 내장 에이전트가 돌고 있으면 그쪽 게이트가 처리한다. 여기까지 겹치면 알림이 두 번 쌓인다.
+  if (runningAgents.has(threadId)) return;
+
+  const thread = threadStore.get(threadId);
+  if (!thread) return;
+  if (thread.status === 'waiting_login' || thread.status === 'done' || thread.status === 'failed') {
+    return;
+  }
+
+  const finalUrl = wc.getURL();
+  const hasLoginForm =
+    ((await wc
+      .executeJavaScript('!!document.querySelector("input[type=password]")')
+      .catch(() => false)) as boolean) === true;
+
+  const gate = loginGateOf({ requestedUrl, finalUrl, hasLoginForm });
+  if (gate === null) return;
+
+  // 에이전트 게이트와 같은 순서: 상태 → 체크포인트 → 받은편지함. 로그인 후 이 체크포인트에서 재개한다.
+  threadStore.setStatus(threadId, 'waiting_login', 'login_required');
+  await saveCheckpointFor(threadId, {
+    name: '로그인 필요',
+    trigger: 'ask_user',
+    cursor: { lastUrl: gate }
+  });
+
+  inbox.post({
+    kind: 'login_required',
+    threadId,
+    title: `로그인이 필요합니다 — ${hostOfUrl(gate)}`,
+    summary: `${gate} 이(가) 로그인 화면으로 밀려났습니다. 로그인 경로를 골라 진행하세요.`
+  });
+
+  pushThreads();
+}
+
+function hostOfUrl(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * 사람에게 묻고 답을 기다린다. ask_user / request_access 가 공유한다.
  * 답이 오기 전에는 도구 호출이 그대로 대기한다 — 헤드리스로 도는 경우를 위한 큐잉은 M3.
  */
@@ -733,6 +838,8 @@ function createWindow(helmSession: Session): void {
       attachShortcuts(wc, shortcutHandlers);
       // AI 가 나중에 콘솔을 물어볼 수 있으므로 탭이 생길 때부터 모아 둔다.
       startConsoleCapture(wc);
+      // 스레드 소유 탭이 로그인 화면으로 되밀리면 waiting_login + 받은편지함(M4c).
+      watchSessionExpiry(wc);
     },
     onPopup: (childTabId, parentTabId) => {
       // 팝업은 부모 탭을 몰고 있던 스레드가 이어서 다룬다.
@@ -1988,7 +2095,7 @@ function registerIpc(): void {
 
     try {
       return await importPasswordCsv(csvPath, 'wizard', {
-        credentials: new WindowsCredentialStore(),
+        credentials: e2eCredentialStore ?? new WindowsCredentialStore(),
         audit: (entry) => {
           auditLog?.append({
             ts: Date.now(),
@@ -2414,6 +2521,34 @@ void app.whenReady().then(async () => {
         pendingPrompts.delete(id);
         pending.resolve(answer);
         return true;
+      },
+
+      // ── M4c 로그인·임포트 ──
+      /** 모의 IdP 의 세션 상태 — `app://` 는 쿠키가 없어 이것이 로그인 성립의 판정 근거다 */
+      idpHasSession: async (host: string) => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        return portalTestHooks.idp.hasSession(host);
+      },
+      idpReset: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        portalTestHooks.idp.reset();
+      },
+      /** external 경로 재현용 — "외부 브라우저에서 로그인을 마쳤다" 를 fixture 에 심는다 */
+      idpLogin: async (host: string) => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        portalTestHooks.idp.login(host);
+      },
+      idpCreds: async () => {
+        const { portalTestHooks } = await import('./browser/PortalProtocol');
+        return { user: portalTestHooks.idp.user, password: portalTestHooks.idp.password };
+      },
+      /** E2E 자격증명 대역에 무엇이 저장됐는가 — 값은 나오지 않는다(대상·사용자 이름만) */
+      credentialTargets: () => e2eCredentialStore?.list() ?? [],
+      /** 내용을 읽은 파일 경로 전부 — Cookies·Local State 접근 0건 판정의 근거 */
+      fileAccesses: () => [...fileAccessLog],
+      loginStart: (url: string, method: 'inapp' | 'oauth_modal' | 'external') => {
+        if (!loginBroker || !sessionStore) return Promise.resolve(null);
+        return loginBroker.start(url, method, sessionStore.currentName());
       }
     };
   }

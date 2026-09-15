@@ -500,6 +500,11 @@ export class TabManager {
     return this.webContentsOf(id);
   }
 
+  /** 웹 콘텐츠 → 탭 id. 탭 이벤트 리스너가 자기 탭을 찾을 때 쓴다(세션 만료 감지 등). */
+  tabIdForWebContents(wc: Electron.WebContents): number | null {
+    return this.tabs.find((t) => t.view?.webContents === wc)?.id ?? null;
+  }
+
   getTabBounds(id: number): Rectangle | null {
     return this.tabs.find((t) => t.id === id)?.view?.getBounds() ?? null;
   }
