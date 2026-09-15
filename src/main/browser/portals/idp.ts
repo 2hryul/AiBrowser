@@ -56,6 +56,27 @@ export function looksEmbedded(userAgent: string): boolean {
   return /Electron\//i.test(userAgent);
 }
 
+/**
+ * 임베디드 거부의 실제 판정은 **페이지 안**에서도 한다.
+ *
+ * `protocol.handle` 로 들어오는 Request 에는 user-agent 헤더가 실리지 않는다(실측 —
+ * 탭 UA 에 `Electron/44` 가 있어도 `request.headers` 에서는 비어 있다). 실제 IdP 는 서버가
+ * UA 를 보지만 app:// fixture 는 그럴 수 없으므로, 같은 신호(`navigator.userAgent`)를
+ * 페이지가 확인한다. 모달이 `loadURL` 의 userAgent 옵션으로 받은 값은 navigator 에도
+ * 반영되므로, Electron 토큰을 뗀 모달만 이 게이트를 통과한다 — 재현하려는 성질은 같다.
+ * 서버 쪽 `looksEmbedded` 검사는 헤더가 실리는 환경(실제 http IdP)을 위해 남겨 둔다.
+ */
+const EMBED_GATE = `<script>
+if (/Electron\\//i.test(navigator.userAgent)) {
+  document.addEventListener('DOMContentLoaded', function () {
+    document.body.innerHTML = '<header>모의 IdP — OAuth</header>' +
+      '<main><h1 id="embedded-blocked">안전하지 않은 앱</h1>' +
+      '<p>이 브라우저는 앱에 포함된 웹뷰로 보입니다. 보안을 위해 로그인할 수 없습니다.</p>' +
+      '<p>기본 브라우저나 별도 창에서 다시 시도하세요.</p></main>';
+  });
+}
+</script>`;
+
 function loginForm(host: string, next: string, error: string): string {
   return page(
     '로그인',
@@ -177,7 +198,8 @@ export async function routeIdpOauth(url: URL, request: GlobalRequest): Promise<R
              <input type="hidden" name="state" value="${esc(state)}" />
              <button id="oauth-allow" type="submit">허용</button>
            </form>
-         </main>`
+         </main>`,
+        EMBED_GATE
       )
     );
   }
@@ -221,7 +243,8 @@ export async function routeIdpOauth(url: URL, request: GlobalRequest): Promise<R
           '로그인 필요',
           `<main><h1 id="need-login">로그인이 필요합니다</h1>
            <a id="oauth-start" href="app://${esc(host)}/authorize?redirect_uri=app://${esc(host)}/callback&state=x">로그인</a>
-           </main>`
+           </main>`,
+          EMBED_GATE
         )
       );
     }

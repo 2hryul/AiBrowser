@@ -24,6 +24,8 @@
     "test:persistence": "vitest run tests/persistence.test.ts tests/portals.test.ts",
     "test:scenario-e": "electron-vite build && playwright test scripts/scenario-e.ts",
     "test:persistence-e2e": "electron-vite build && playwright test scripts/persistence-e2e.ts",
+    "test:login": "electron-vite build && playwright test scripts/login-e2e.ts",
+    "test:import": "electron-vite build && playwright test scripts/import-e2e.ts",
     "probe:llm": "node scripts/probe-llm.mjs",
     "fixtures:golden": "tsx scripts/make-golden.ts",
     "test:ops": "vitest run tests/ops.test.ts",

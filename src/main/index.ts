@@ -177,6 +177,9 @@ const runningAgents = new Map<string, AbortController>();
  * 더럽히지 않는 것이 맞다.
  */
 const e2eCredentialStore = isE2E ? new MemoryCredentialStore() : null;
+
+/** E2E 가 기록으로 확인하는 외부 브라우저 호출 — 실제 브라우저는 열지 않는다. */
+const e2eExternalOpens: string[] = [];
 /** 사람 확인을 기다리는 사이트 메모 제안. 자동 저장하지 않는다(GOAL-M4 성공 조건 6). */
 let pendingNoteProposal: { threadId: string; host: string; text: string } | null = null;
 
@@ -2246,6 +2249,11 @@ void app.whenReady().then(async () => {
     },
     openModal: (input) => openLoginModal(input),
     openExternal: async (url) => {
+      // E2E 는 실제 브라우저를 열지 않는다 — 호출됐다는 기록만 남기고 판정에 쓴다.
+      if (isE2E) {
+        e2eExternalOpens.push(url);
+        return;
+      }
       await electronShell.openExternal(url);
     },
     ask: (question, options) => askHuman({ kind: 'ask_user', question, options }),
@@ -2546,6 +2554,8 @@ void app.whenReady().then(async () => {
       credentialTargets: () => e2eCredentialStore?.list() ?? [],
       /** 내용을 읽은 파일 경로 전부 — Cookies·Local State 접근 0건 판정의 근거 */
       fileAccesses: () => [...fileAccessLog],
+      /** 외부 브라우저를 열었어야 하는 주소들 — external 경로의 mock 기록 */
+      externalOpens: () => [...e2eExternalOpens],
       loginStart: (url: string, method: 'inapp' | 'oauth_modal' | 'external') => {
         if (!loginBroker || !sessionStore) return Promise.resolve(null);
         return loginBroker.start(url, method, sessionStore.currentName());

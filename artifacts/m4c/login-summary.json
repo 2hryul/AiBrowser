@@ -1,0 +1,76 @@
+{
+  "ranAt": "2026-09-15T06:00:48.609Z",
+  "inapp": {
+    "result": {
+      "status": "logged_in",
+      "method": "inapp",
+      "host": "idp-form",
+      "reason": "로그인이 확인되었습니다"
+    },
+    "meta": {
+      "loginMethod": "inapp",
+      "loggedInAt": 1789452049355,
+      "verifiedHost": "idp-form"
+    }
+  },
+  "restart": {
+    "metaAfterRestart": {
+      "loginMethod": "inapp",
+      "loggedInAt": 1789452049355,
+      "verifiedHost": "idp-form"
+    }
+  },
+  "oauthModal": {
+    "blockedInPlainTab": true,
+    "result": {
+      "status": "logged_in",
+      "method": "oauth_modal",
+      "host": "idp-oauth",
+      "reason": "로그인이 확인되었습니다"
+    },
+    "meta": {
+      "loginMethod": "oauth_modal",
+      "loggedInAt": 1789452050633,
+      "verifiedHost": "idp-oauth"
+    }
+  },
+  "external": {
+    "result": {
+      "status": "logged_in",
+      "method": "external",
+      "host": "idp-form",
+      "reason": "로그인이 확인되었습니다"
+    },
+    "meta": {
+      "loginMethod": "external",
+      "loggedInAt": 1789452050832,
+      "verifiedHost": "idp-form"
+    }
+  },
+  "externalDenied": {
+    "result": {
+      "status": "denied",
+      "method": "external",
+      "host": "portal-a",
+      "reason": "portal-a 은(는) 외부 브라우저 로그인이 허용된 호스트가 아닙니다"
+    },
+    "openExternalCalls": 1
+  },
+  "sessionExpiry": {
+    "inboxItem": {
+      "id": 1,
+      "kind": "login_required",
+      "threadId": "t-login-e2e",
+      "title": "로그인이 필요합니다 — idp-form",
+      "summary": "app://idp-form/app 이(가) 로그인 화면으로 밀려났습니다. 로그인 경로를 골라 진행하세요.",
+      "evidencePath": null,
+      "createdAt": 1789452050978,
+      "readAt": null
+    },
+    "checkpoint": {
+      "id": 2,
+      "name": "로그인 필요"
+    },
+    "screenshot": "login-required-card.png"
+  }
+}

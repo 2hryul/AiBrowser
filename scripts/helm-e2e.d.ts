@@ -509,6 +509,7 @@ interface HelmE2EHook {
   idpCreds: () => Promise<{ user: string; password: string }>;
   credentialTargets: () => { target: string; username: string }[];
   fileAccesses: () => string[];
+  externalOpens: () => string[];
   loginStart: (
     url: string,
     method: 'inapp' | 'oauth_modal' | 'external'
