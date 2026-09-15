@@ -91,25 +91,21 @@ export function ImportWizard({ onClose }: Props): JSX.Element {
       aria-label="다른 브라우저에서 가져오기"
       className="flex h-full min-h-0 flex-col text-[13px]"
     >
-      {/* 단계 표시 */}
+      {/* 단계 표시. 정책이 꺼도 2단계는 남는다 — 안 보이면 "왜 없지?" 가 되고,
+          보이면 "관리자 정책으로 비활성" 이라는 답이 화면에 있다. */}
       <ol className="flex shrink-0 gap-2 border-b border-shell-line px-4 py-2 text-[12px]">
-        {([1, 2, 3] as Stage[]).map((step) => {
-          const hidden = step === 2 && !passwordsAllowed;
-          return (
-            <li
-              key={step}
-              data-wizard-step={step}
-              data-wizard-step-hidden={hidden ? 'true' : 'false'}
-              className={[
-                'rounded px-2 py-0.5',
-                hidden ? 'text-shell-muted line-through' : '',
-                stage === step ? 'bg-shell-accent text-white' : 'text-shell-muted'
-              ].join(' ')}
-            >
-              {step}. {step === 1 ? '가져온다' : step === 2 ? '동의하면 가져온다' : '가져오지 않는다'}
-            </li>
-          );
-        })}
+        {([1, 2, 3] as Stage[]).map((step) => (
+          <li
+            key={step}
+            data-wizard-step={step}
+            className={[
+              'rounded px-2 py-0.5',
+              stage === step ? 'bg-shell-accent text-white' : 'text-shell-muted'
+            ].join(' ')}
+          >
+            {step}. {step === 1 ? '가져온다' : step === 2 ? '동의하면 가져온다' : '가져오지 않는다'}
+          </li>
+        ))}
       </ol>
 
       {message === null ? null : (
@@ -283,7 +279,7 @@ export function ImportWizard({ onClose }: Props): JSX.Element {
           data-wizard-back
           disabled={stage === 1}
           className="h-7 rounded border border-shell-line px-3 text-[12px] disabled:opacity-40"
-          onClick={() => setStage((current) => (current === 3 && !passwordsAllowed ? 1 : ((current - 1) as Stage)))}
+          onClick={() => setStage((current) => (current - 1) as Stage)}
         >
           이전
         </button>
@@ -293,7 +289,7 @@ export function ImportWizard({ onClose }: Props): JSX.Element {
             type="button"
             data-wizard-next
             className="h-7 rounded border border-shell-line px-3 text-[12px] hover:bg-shell-panel"
-            onClick={() => setStage((current) => (current === 1 && !passwordsAllowed ? 3 : ((current + 1) as Stage)))}
+            onClick={() => setStage((current) => (current + 1) as Stage)}
           >
             다음
           </button>
