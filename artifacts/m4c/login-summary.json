@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-09-15T06:00:48.609Z",
+  "ranAt": "2026-09-15T06:08:34.965Z",
   "inapp": {
     "result": {
       "status": "logged_in",
@@ -9,14 +9,14 @@
     },
     "meta": {
       "loginMethod": "inapp",
-      "loggedInAt": 1789452049355,
+      "loggedInAt": 1789452515770,
       "verifiedHost": "idp-form"
     }
   },
   "restart": {
     "metaAfterRestart": {
       "loginMethod": "inapp",
-      "loggedInAt": 1789452049355,
+      "loggedInAt": 1789452515770,
       "verifiedHost": "idp-form"
     }
   },
@@ -30,7 +30,7 @@
     },
     "meta": {
       "loginMethod": "oauth_modal",
-      "loggedInAt": 1789452050633,
+      "loggedInAt": 1789452517053,
       "verifiedHost": "idp-oauth"
     }
   },
@@ -43,7 +43,7 @@
     },
     "meta": {
       "loginMethod": "external",
-      "loggedInAt": 1789452050832,
+      "loggedInAt": 1789452517275,
       "verifiedHost": "idp-form"
     }
   },
@@ -64,7 +64,7 @@
       "title": "로그인이 필요합니다 — idp-form",
       "summary": "app://idp-form/app 이(가) 로그인 화면으로 밀려났습니다. 로그인 경로를 골라 진행하세요.",
       "evidencePath": null,
-      "createdAt": 1789452050978,
+      "createdAt": 1789452517432,
       "readAt": null
     },
     "checkpoint": {
