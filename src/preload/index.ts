@@ -158,6 +158,10 @@ const api: HelmApi = {
   removeSchedule: (id) => ipcRenderer.invoke(IPC.scheduleRemove, id),
   fireSchedule: (id) => ipcRenderer.invoke(IPC.scheduleFire, id),
 
+  // 로그인·임포트(M4c)
+  importPasswords: (csvPath) => ipcRenderer.invoke(IPC.importPasswords, csvPath),
+  loginStart: (url, method) => ipcRenderer.invoke(IPC.loginStart, url, method),
+
   // 구독
   onStateChanged: (listener) => subscribe(IPC.stateChanged, listener),
   onShellChanged: (listener) => subscribe(IPC.shellChanged, listener),

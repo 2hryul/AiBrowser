@@ -8,6 +8,8 @@ import {
   ipcMain,
   safeStorage,
   session,
+  shell as electronShell,
+  BrowserWindow,
   type Session
 } from 'electron';
 import { installAppProtocol, registerAppScheme } from './browser/AppProtocol';
@@ -34,6 +36,9 @@ import { ThreadStore } from './persistence/ThreadStore';
 import { CheckpointStore, type Checkpoint } from './persistence/CheckpointStore';
 import { Inbox } from './persistence/Inbox';
 import { Scheduler } from './scheduler/Scheduler';
+import { importPasswordCsv } from './browser/PasswordImport';
+import { WindowsCredentialStore } from './sessions/CredentialStore';
+import { LoginBroker, type LoginProbe, type ModalResult } from './sessions/LoginBroker';
 import { checkDraft, promoteThread } from './workflow/Promote';
 import { WorkflowRunner, type WorkflowRunOutcome } from './workflow/Runner';
 import { NoteStore } from './persistence/NoteStore';
@@ -105,6 +110,7 @@ let checkpointStore: CheckpointStore | null = null;
 let inbox: Inbox | null = null;
 let workflowRunner: WorkflowRunner | null = null;
 let scheduler: Scheduler | null = null;
+let loginBroker: LoginBroker | null = null;
 let noteStore: NoteStore | null = null;
 let bookmarkMeta: BookmarkMeta | null = null;
 let changeTracker: ChangeTracker | null = null;
@@ -540,6 +546,109 @@ function askHuman(prompt: Omit<PendingPrompt, 'id' | 'createdAt'>): Promise<stri
     pendingPrompts.set(id, { prompt: full, resolve });
     sendToShell(IPC.promptRequested, full);
   });
+}
+
+/**
+ * OAuth 모달 — 서비스와 **같은 partition** 을 쓰는 별도 창.
+ *
+ * 같은 partition 이어야 하는 이유가 이 경로의 전부다. 다른 partition 에서 로그인하면
+ * 쿠키가 거기 생기고 서비스 탭은 여전히 로그아웃 상태다.
+ *
+ * UA 는 Electron 토큰만 뗀 표준 Chromium 값을 쓴다 — 스푸핑이 아니다(FIXED DECISIONS).
+ * 그래야 임베디드 웹뷰를 거부하는 IdP 가 정상 브라우저로 보고 code 를 내준다.
+ *
+ * 완료 판정은 **redirect 가 콜백 주소에 닿았는가**로 한다. 창이 닫힌 것만으로는
+ * 성공인지 사용자가 포기한 것인지 알 수 없다.
+ */
+function openLoginModal(input: {
+  url: string;
+  partition: string;
+  userAgent: string;
+}): Promise<ModalResult> {
+  return new Promise((resolve) => {
+    const modal = new BrowserWindow({
+      width: 520,
+      height: 680,
+      title: '로그인',
+      ...(mainWindow === null ? {} : { parent: mainWindow, modal: true }),
+      webPreferences: {
+        partition: input.partition,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+
+    let completed = false;
+    let finalUrl = input.url;
+
+    const settle = (): void => {
+      if (!modal.isDestroyed()) modal.destroy();
+      resolve({ completed, finalUrl });
+    };
+
+    modal.webContents.on('did-navigate', (_event, navigatedTo) => {
+      finalUrl = navigatedTo;
+
+      // 콜백에 닿으면 끝난 것이다. 페이지가 다 그려지기를 기다리지 않는다.
+      if (navigatedTo.includes('/callback')) {
+        completed = true;
+        setTimeout(settle, 150);
+      }
+    });
+
+    modal.on('closed', () => resolve({ completed, finalUrl }));
+
+    void modal.loadURL(input.url, { userAgent: input.userAgent });
+  });
+}
+
+/**
+ * 로그인이 실제로 섰는지 본다.
+ *
+ * 숨은 창에서 대상 주소를 한 번 열어 **되밀렸는지**를 확인한다. 사람이 보는 탭을 쓰지 않는
+ * 이유는 확인 때문에 화면이 움직이면 안 되기 때문이다(불변 조건 3: 사람이 우선권을 가진다).
+ */
+async function probeLogin(url: string): Promise<LoginProbe> {
+  const probe = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      partition: SESSION_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+
+  try {
+    await probe.loadURL(url);
+    const finalUrl = probe.webContents.getURL();
+
+    const hasLoginForm = (await probe.webContents
+      .executeJavaScript('!!document.querySelector("input[type=password]")')
+      .catch(() => false)) as boolean;
+
+    const loginRequired = (await probe.webContents
+      .executeJavaScript('!!document.querySelector("#login-form, #need-login, #embedded-blocked")')
+      .catch(() => false)) as boolean;
+
+    const cookies = await session
+      .fromPartition(SESSION_PARTITION)
+      .cookies.get({ url })
+      .catch(() => []);
+
+    return {
+      finalUrl,
+      hasLoginForm,
+      hasSessionCookie: cookies.length > 0,
+      loginRequired
+    };
+  } catch (error) {
+    console.warn(`[probeLogin] 확인 실패 - 주소: ${url}`, error);
+    return { finalUrl: url, hasLoginForm: false, hasSessionCookie: false, loginRequired: true };
+  } finally {
+    if (!probe.isDestroyed()) probe.destroy();
+  }
 }
 
 /**
@@ -1863,6 +1972,58 @@ function registerIpc(): void {
     return outcome === null ? null : recordWorkflowRun(outcome);
   });
 
+  /**
+   * 저장 비밀번호 가져오기 — Chrome 내보내기 CSV.
+   *
+   * 정책이 꺼져 있으면 경로 자체가 없다. 화면에서 항목을 숨기는 것만으로는 부족하다 —
+   * renderer 를 믿고 게이트를 UI 에만 두면 IPC 를 직접 불러 우회할 수 있다.
+   */
+  ipcMain.handle(IPC.importPasswords, async (_e, csvPath: unknown) => {
+    if (typeof csvPath !== 'string' || csvPath.trim() === '') return null;
+
+    if (policy?.snapshot().allowPasswordImport !== true) {
+      console.warn('[import] 비밀번호 가져오기가 정책으로 비활성되어 있습니다');
+      return null;
+    }
+
+    try {
+      return await importPasswordCsv(csvPath, 'wizard', {
+        credentials: new WindowsCredentialStore(),
+        audit: (entry) => {
+          auditLog?.append({
+            ts: Date.now(),
+            source: 'import',
+            runId: APP_RUN_ID,
+            tabId: null,
+            url: null,
+            tool: 'import_passwords',
+            // 값은 넘기지 않는다 — 건수·출처·호스트만.
+            args: { what: entry.what, sourceProfile: entry.sourceProfile },
+            targetText: null,
+            result: { count: entry.count, detail: entry.detail ?? null },
+            durationMs: 0,
+            screenshotPath: null,
+            policyDecision: 'allow',
+            grantScope: null,
+            error: null
+          });
+        }
+      });
+    } catch (error) {
+      console.error('[import] 비밀번호 가져오기 실패', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle(IPC.loginStart, async (_e, url: unknown, method: unknown) => {
+    if (typeof url !== 'string' || !loginBroker || !sessionStore) return null;
+
+    const allowed = ['inapp', 'oauth_modal', 'external'];
+    const chosen = allowed.includes(String(method)) ? String(method) : 'inapp';
+
+    return loginBroker.start(url, chosen as 'inapp' | 'oauth_modal' | 'external', sessionStore.currentName());
+  });
+
   ipcMain.handle(IPC.importRun, (_e, dir: unknown) => {
     if (typeof dir !== 'string' || !history || !bookmarks || !autofill) return null;
 
@@ -1962,6 +2123,45 @@ void app.whenReady().then(async () => {
     },
     baseDir: evidenceBaseDir(),
     workflowDir: path.join(app.getAppPath(), 'workflows')
+  });
+
+  /**
+   * LoginBroker — 로그인 획득 경로 3종(M4c).
+   *
+   * 창을 여는 일과 확인하는 일을 주입으로 갈라 두었다. 여기가 그 주입부이고,
+   * 판정 로직은 `sessions/LoginBroker.ts` 에 있다(Electron 없이 단위 테스트한다).
+   */
+  loginBroker = new LoginBroker({
+    sessions: sessionStore,
+    externalLoginHosts: () => policy?.snapshot().externalLoginHosts ?? [],
+    openInTab: async (url) => {
+      tabManager?.createTab(url, 'ai', sessionStore?.currentName());
+    },
+    openModal: (input) => openLoginModal(input),
+    openExternal: async (url) => {
+      await electronShell.openExternal(url);
+    },
+    ask: (question, options) => askHuman({ kind: 'ask_user', question, options }),
+    probe: (target) => probeLogin(target.url),
+    defaultUserAgent: () => helmSession.getUserAgent(),
+    audit: (entry) => {
+      auditLog?.append({
+        ts: Date.now(),
+        source: 'login',
+        runId: APP_RUN_ID,
+        tabId: null,
+        url: null,
+        tool: entry.event,
+        args: { host: entry.host, method: entry.method },
+        targetText: null,
+        result: entry.detail === undefined ? null : { detail: entry.detail },
+        durationMs: 0,
+        screenshotPath: null,
+        policyDecision: entry.event === 'login_denied' ? 'deny' : 'allow',
+        grantScope: null,
+        error: null
+      });
+    }
   });
 
   scheduler = new Scheduler({

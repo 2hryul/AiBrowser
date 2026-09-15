@@ -72,6 +72,8 @@ export const IPC = {
   // ── 프로필 가져오기 ─────────────────────────────────
   importDiscover: 'helm:import:discover',
   importRun: 'helm:import:run',
+  importPasswords: 'helm:import:passwords',
+  loginStart: 'helm:login:start',
 
   // ── AI 코브라우징 / Handoff ─────────────────────────
   aiStateGet: 'helm:ai:state:get',

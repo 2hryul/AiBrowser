@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-09-14T23:44:23.208Z",
+  "ranAt": "2026-09-15T04:45:19.119Z",
   "m0": {
     "contentBounds": {
       "x": 240,
@@ -106,23 +106,5 @@
     "valueAfterRestart": "m1-persisted",
     "bookmarksAfterRestart": 1,
     "historyAfterRestart": 12
-  },
-  "profileImport": {
-    "discovered": [
-      "chrome/Default",
-      "edge/Default"
-    ],
-    "imported": {
-      "bookmarks": 4,
-      "history": 5,
-      "autofill": 3
-    },
-    "skippedFiles": [
-      "Affiliation Database",
-      "Cookies",
-      "Local State",
-      "Login Data",
-      "Login Data For Account"
-    ]
   }
 }

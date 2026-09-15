@@ -147,6 +147,22 @@ export interface AgentOutcomeView {
   reason: string | null;
 }
 
+export interface PasswordImportView {
+  imported: number;
+  skipped: number;
+  /** 어느 호스트로 갔는가. 사용자 이름·비밀번호는 담기지 않는다. */
+  hosts: string[];
+  sourceRemoved: boolean;
+}
+
+export interface LoginStartView {
+  status: 'logged_in' | 'denied' | 'failed' | 'cancelled';
+  method: 'inapp' | 'oauth_modal' | 'external';
+  host: string;
+  reason: string;
+  fellBackFrom?: 'inapp' | 'oauth_modal' | 'external';
+}
+
 export interface HelmApi {
   // 탭
   getState(): Promise<BrowserState>;
@@ -329,6 +345,13 @@ export interface HelmApi {
   }): Promise<ScheduleView | { error: string }>;
   removeSchedule(id: string): Promise<boolean>;
   fireSchedule(id: string): Promise<WorkflowRunView | null>;
+
+  // 로그인·임포트(M4c)
+  importPasswords(csvPath: string): Promise<PasswordImportView | null>;
+  loginStart(
+    url: string,
+    method: 'inapp' | 'oauth_modal' | 'external'
+  ): Promise<LoginStartView | null>;
 
   // 구독 — 반환값을 호출하면 해제된다.
   onStateChanged(listener: (state: BrowserState) => void): () => void;

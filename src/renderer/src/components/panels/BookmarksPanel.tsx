@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Bookmark } from '../../../../shared/types';
 import { PanelFrame } from './PanelFrame';
-import { ImportPanel } from './ImportPanel';
+import { ImportWizard } from './ImportWizard';
 import { BookmarkMetaForm } from './BookmarkMetaForm';
 
 interface Props {
@@ -28,7 +28,7 @@ export function BookmarksPanel({ bookmarks, activeTabId }: Props): JSX.Element {
 
   return (
     <PanelFrame title="북마크" count={bookmarks.length}>
-      <ImportPanel />
+      <ImportWizard />
       {bookmarks.length === 0 ? (
         <p className="p-6 text-[13px] text-shell-muted">
           북마크가 없습니다. 주소창 오른쪽 별(☆) 또는 Ctrl+D 로 추가합니다.

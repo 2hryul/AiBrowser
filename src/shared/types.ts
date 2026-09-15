@@ -271,6 +271,10 @@ export interface PolicyView {
   deny: { hosts: string[]; tools: string[] };
   tools: Record<string, 'allow' | 'ask' | 'deny'>;
   grants: PolicyGrantView[];
+  /** M4c — 마법사에 저장 비밀번호 항목을 보여 줄지(정보보호 결정) */
+  allowPasswordImport: boolean;
+  /** M4c — 외부 브라우저 로그인을 허용한 호스트 */
+  externalLoginHosts: string[];
   retentionDays: number;
 }
 
