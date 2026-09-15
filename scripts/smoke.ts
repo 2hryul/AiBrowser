@@ -1013,7 +1013,12 @@ test('[M1] 프로필 가져오기 — 앱을 통해 fixture 프로필을 가져�
     expect(stored.bookmarks).toBe(expectedCounts['chrome']?.bookmarks);
     expect(stored.history).toBeGreaterThanOrEqual(expectedCounts['chrome']?.visits ?? 0);
 
-    // 가져오기 UI 가 결과를 보여주는지도 확인한다.
+    /**
+     * 가져오기 UI 가 결과를 보여주는지도 확인한다.
+     *
+     * M4c 에서 1단계짜리 패널이 3단계 마법사로 바뀌었다(`data-import-panel` →
+     * `data-import-wizard`). 확인하는 것은 그대로다 — 화면이 프로필 2개를 실제로 그리는가.
+     */
     await third.evaluate(() => globalThis.__helm?.setPanel('bookmarks'));
     await expect
       .poll(
@@ -1023,16 +1028,16 @@ test('[M1] 프로필 가져오기 — 앱을 통해 fixture 프로필을 가져�
             if (!view) throw new Error('[smoke] 셸 뷰 없음');
             return (await view.webContents.executeJavaScript(
               `JSON.stringify({
-                 panel: !!document.querySelector('[data-import-panel]'),
-                 profiles: document.querySelectorAll('[data-import-profile]').length
+                 wizard: !!document.querySelector('[data-import-wizard]'),
+                 profiles: document.querySelectorAll('[data-wizard-profile]').length
                })`
             )) as string;
           });
           return shell;
         },
-        { message: '가져오기 UI 가 프로필 목록을 보여주기를 대기' }
+        { message: '가져오기 마법사가 프로필 목록을 보여주기를 대기' }
       )
-      .toBe(JSON.stringify({ panel: true, profiles: 2 }));
+      .toBe(JSON.stringify({ wizard: true, profiles: 2 }));
 
     summary['profileImport'] = {
       discovered: profiles.map((p) => `${p.browser}/${p.name}`),

@@ -1,21 +1,21 @@
 {
-  "ranAt": "2026-09-15T04:45:19.119Z",
+  "ranAt": "2026-09-15T04:50:33.060Z",
   "m0": {
     "contentBounds": {
       "x": 240,
       "y": 48,
       "width": 1026,
-      "height": 736
+      "height": 710
     },
     "pageViewport": {
       "w": 1026,
-      "h": 736
+      "h": 710
     },
     "shellBounds": {
       "x": 0,
       "y": 0,
       "width": 1266,
-      "height": 784
+      "height": 758
     },
     "tabsAfterClose": 2
   },
@@ -89,8 +89,8 @@
   "screenshots": {
     "shell.png": {
       "width": 1583,
-      "height": 980,
-      "bytes": 28338,
+      "height": 948,
+      "bytes": 28108,
       "luminance": 30.3
     },
     "home-tab.png": {
@@ -106,5 +106,23 @@
     "valueAfterRestart": "m1-persisted",
     "bookmarksAfterRestart": 1,
     "historyAfterRestart": 12
+  },
+  "profileImport": {
+    "discovered": [
+      "chrome/Default",
+      "edge/Default"
+    ],
+    "imported": {
+      "bookmarks": 4,
+      "history": 5,
+      "autofill": 3
+    },
+    "skippedFiles": [
+      "Affiliation Database",
+      "Cookies",
+      "Local State",
+      "Login Data",
+      "Login Data For Account"
+    ]
   }
 }
