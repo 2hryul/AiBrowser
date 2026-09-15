@@ -1,0 +1,72 @@
+{
+  "ranAt": "2026-09-15T06:04:28.098Z",
+  "import-chrome": {
+    "sourceBrowser": "chrome",
+    "sourceProfile": "chrome/Default",
+    "bookmarks": 4,
+    "history": 5,
+    "autofill": 3,
+    "skippedCredentialFiles": [
+      "Affiliation Database",
+      "Cookies",
+      "Local State",
+      "Login Data",
+      "Login Data For Account"
+    ],
+    "errors": []
+  },
+  "import-edge": {
+    "sourceBrowser": "edge",
+    "sourceProfile": "edge/Default",
+    "bookmarks": 2,
+    "history": 2,
+    "autofill": 1,
+    "skippedCredentialFiles": [
+      "Affiliation Database",
+      "Cookies",
+      "Local State",
+      "Login Data",
+      "Login Data For Account"
+    ],
+    "errors": []
+  },
+  "fileAccess": {
+    "readUnderFixtures": [
+      "Bookmarks",
+      "History",
+      "Web Data",
+      "Bookmarks",
+      "History",
+      "Web Data"
+    ],
+    "forbiddenTouched": 0
+  },
+  "wizardDisabled": {
+    "dom": {
+      "csvInput": false,
+      "consent": false,
+      "importButton": false
+    },
+    "screenshot": "wizard-passwords-disabled.png"
+  },
+  "passwordImport": {
+    "stored": [
+      {
+        "target": "Helm:gw.example.co.kr",
+        "username": "hong@example.co.kr"
+      },
+      {
+        "target": "Helm:mail.example.co.kr",
+        "username": "hong@example.co.kr"
+      },
+      {
+        "target": "Helm:itsm.example.co.kr",
+        "username": "hong@example.co.kr"
+      }
+    ],
+    "sourceRemoved": true,
+    "auditCount": 3,
+    "domMarkersChecked": 5,
+    "screenshot": "wizard-passwords-imported.png"
+  }
+}
