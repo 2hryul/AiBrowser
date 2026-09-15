@@ -5,6 +5,7 @@ import { PORTAL_E, portalEHooks, routePortalE } from './portals/wiki';
 import { PORTAL_G, portalGHooks, routePortalG } from './portals/messenger';
 import { routePortalSettle, setSettleApi, isSettleApiEnabled } from './portals/settle';
 import { routePortalLedger } from './portals/ledger';
+import { idpHooks, routeIdpForm, routeIdpOauth } from './portals/idp';
 import { settleHooks } from './portals/settleData';
 
 /**
@@ -36,7 +37,10 @@ export const PORTAL_HOSTS = [
   'portal-g',
   'portal-h-settle',
   'portal-h-ledger',
-  'portal-billing'
+  'portal-billing',
+  // M4c — 로그인 획득 경로 3종을 시험하는 모의 IdP
+  'idp-form',
+  'idp-oauth'
 ] as const;
 export type PortalHost = (typeof PORTAL_HOSTS)[number];
 
@@ -842,6 +846,8 @@ export async function handlePortalRequest(
   if (host === 'portal-h-settle') return routePortalSettle(url);
   if (host === 'portal-h-ledger') return routePortalLedger(url);
   if (host === 'portal-billing') return html(portalBillingIndex());
+  if (host === 'idp-form') return routeIdpForm(url, request);
+  if (host === 'idp-oauth') return routeIdpOauth(url, request);
   return null;
 }
 
@@ -852,6 +858,8 @@ export const portalTestHooks = {
   wiki: portalEHooks,
   chat: portalGHooks,
   settle: settleHooks,
+  /** 모의 IdP — 로그인 경로 3종(M4c) */
+  idp: idpHooks,
   /** 정산 API 스위치 — 어댑터 사다리(network → dom) 폴백 시험용 */
   setSettleApi,
   isSettleApiEnabled,
